@@ -1,0 +1,32 @@
+# Build outputs
+build/
+build-*/
+out/
+cmake-build-*/
+
+# IDE / editor
+.vs/
+.vscode/
+.idea/
+.obsidian/
+.claude/
+*.user
+*.suo
+*.sdf
+*.opensdf
+CMakeUserPresets.json
+
+# macOS
+.DS_Store
+*.dSYM/
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Logs / temp
+*.log
+*.tmp
+
+# ImGui runtime settings (per-user)
+imgui.ini
