@@ -12,156 +12,174 @@
 #include <imgui_impl_opengl3.h>
 #include <miniaudio.h>
 
-namespace {
+namespace
+{
+	struct FAudioState
+	{
+		// Phase is read and written by the audio thread only.
+		// Other fields are written by the UI thread and read by the audio thread.
+		double Phase = 0.0;
+		double SampleRate = 0.0;
+		std::atomic<float> Frequency{ 440.0f };
+		std::atomic<float> Amplitude{ 0.15f };
+		std::atomic<bool> bMuted{ false };
+	};
 
-struct AudioState {
-    // Read/written by the audio thread; read atomically by the UI thread for display only.
-    double phase        = 0.0;
-    double sampleRate   = 0.0;
-    std::atomic<float> frequency{440.0f};
-    std::atomic<float> amplitude{0.15f};
-    std::atomic<bool>  muted{false};
-};
+	void AudioCallback(ma_device* Device, void* Output, const void* /*Input*/, ma_uint32 FrameCount)
+	{
+		FAudioState* State = static_cast<FAudioState*>(Device->pUserData);
+		float* Samples = static_cast<float*>(Output);
 
-void audioCallback(ma_device* device, void* output, const void* /*input*/, ma_uint32 frameCount) {
-    auto* state   = static_cast<AudioState*>(device->pUserData);
-    auto* samples = static_cast<float*>(output);
+		const ma_uint32 Channels = Device->playback.channels;
+		const float Freq = State->Frequency.load(std::memory_order_relaxed);
+		const float Amp = State->bMuted.load(std::memory_order_relaxed)
+			? 0.0f
+			: State->Amplitude.load(std::memory_order_relaxed);
 
-    const ma_uint32 channels = device->playback.channels;
-    const float     freq     = state->frequency.load(std::memory_order_relaxed);
-    const float     amp      = state->muted.load(std::memory_order_relaxed)
-                                   ? 0.0f
-                                   : state->amplitude.load(std::memory_order_relaxed);
+		const double TwoPi = std::numbers::pi * 2.0;
+		const double PhaseInc = TwoPi * static_cast<double>(Freq) / State->SampleRate;
 
-    const double twoPi    = std::numbers::pi * 2.0;
-    const double phaseInc = twoPi * static_cast<double>(freq) / state->sampleRate;
+		for (ma_uint32 FrameIndex = 0; FrameIndex < FrameCount; ++FrameIndex)
+		{
+			const float Sample = Amp * static_cast<float>(std::sin(State->Phase));
+			for (ma_uint32 ChannelIndex = 0; ChannelIndex < Channels; ++ChannelIndex)
+			{
+				Samples[FrameIndex * Channels + ChannelIndex] = Sample;
+			}
+			State->Phase += PhaseInc;
+			if (State->Phase >= TwoPi)
+			{
+				State->Phase -= TwoPi;
+			}
+		}
+	}
 
-    for (ma_uint32 i = 0; i < frameCount; ++i) {
-        const float s = amp * static_cast<float>(std::sin(state->phase));
-        for (ma_uint32 c = 0; c < channels; ++c) {
-            samples[i * channels + c] = s;
-        }
-        state->phase += phaseInc;
-        if (state->phase >= twoPi) state->phase -= twoPi;
-    }
+	void GlfwErrorCallback(int Code, const char* Description)
+	{
+		std::fprintf(stderr, "GLFW error %d: %s\n", Code, Description);
+	}
 }
 
-void glfwErrorCallback(int code, const char* description) {
-    std::fprintf(stderr, "GLFW error %d: %s\n", code, description);
-}
+int main()
+{
+	// ---- GLFW + OpenGL context ---------------------------------------------
+	glfwSetErrorCallback(GlfwErrorCallback);
+	if (!glfwInit())
+	{
+		std::fprintf(stderr, "glfwInit failed\n");
+		return 1;
+	}
 
-} // namespace
-
-int main() {
-    // ---- GLFW + OpenGL context ---------------------------------------------
-    glfwSetErrorCallback(glfwErrorCallback);
-    if (!glfwInit()) {
-        std::fprintf(stderr, "glfwInit failed\n");
-        return 1;
-    }
-
-    // OpenGL 3.2 Core — works on macOS (where it's the ceiling) and Windows.
-    const char* glslVersion = "#version 150";
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	// OpenGL 3.2 Core — works on macOS (where it's the ceiling) and Windows.
+	const char* GlslVersion = "#version 150";
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 #ifdef __APPLE__
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
 #endif
 
-    GLFWwindow* window = glfwCreateWindow(1280, 800, "NodeSynth — Phase 0", nullptr, nullptr);
-    if (!window) {
-        std::fprintf(stderr, "glfwCreateWindow failed\n");
-        glfwTerminate();
-        return 1;
-    }
-    glfwMakeContextCurrent(window);
-    glfwSwapInterval(1); // vsync
+	GLFWwindow* Window = glfwCreateWindow(1280, 800, "NodeSynth — Phase 0", nullptr, nullptr);
+	if (!Window)
+	{
+		std::fprintf(stderr, "glfwCreateWindow failed\n");
+		glfwTerminate();
+		return 1;
+	}
+	glfwMakeContextCurrent(Window);
+	glfwSwapInterval(1); // vsync
 
-    // ---- Dear ImGui ---------------------------------------------------------
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	// ---- Dear ImGui ---------------------------------------------------------
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 #ifdef __APPLE__
-    io.ConfigMacOSXBehaviors = true;
+	IO.ConfigMacOSXBehaviors = true;
 #endif
-    ImGui::StyleColorsDark();
-    ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init(glslVersion);
+	ImGui::StyleColorsDark();
+	ImGui_ImplGlfw_InitForOpenGL(Window, true);
+	ImGui_ImplOpenGL3_Init(GlslVersion);
 
-    // ---- miniaudio ----------------------------------------------------------
-    AudioState audio;
+	// ---- miniaudio ----------------------------------------------------------
+	FAudioState Audio;
 
-    ma_device_config config     = ma_device_config_init(ma_device_type_playback);
-    config.playback.format      = ma_format_f32;
-    config.playback.channels    = 2;
-    config.sampleRate           = 0; // native rate
-    config.dataCallback         = audioCallback;
-    config.pUserData            = &audio;
+	ma_device_config Config = ma_device_config_init(ma_device_type_playback);
+	Config.playback.format = ma_format_f32;
+	Config.playback.channels = 2;
+	Config.sampleRate = 0; // native rate
+	Config.dataCallback = AudioCallback;
+	Config.pUserData = &Audio;
 
-    ma_device device;
-    if (ma_device_init(nullptr, &config, &device) != MA_SUCCESS) {
-        std::fprintf(stderr, "ma_device_init failed\n");
-        ImGui_ImplOpenGL3_Shutdown();
-        ImGui_ImplGlfw_Shutdown();
-        ImGui::DestroyContext();
-        glfwDestroyWindow(window);
-        glfwTerminate();
-        return 1;
-    }
-    audio.sampleRate = static_cast<double>(device.sampleRate);
+	ma_device Device;
+	if (ma_device_init(nullptr, &Config, &Device) != MA_SUCCESS)
+	{
+		std::fprintf(stderr, "ma_device_init failed\n");
+		ImGui_ImplOpenGL3_Shutdown();
+		ImGui_ImplGlfw_Shutdown();
+		ImGui::DestroyContext();
+		glfwDestroyWindow(Window);
+		glfwTerminate();
+		return 1;
+	}
+	Audio.SampleRate = static_cast<double>(Device.sampleRate);
 
-    if (ma_device_start(&device) != MA_SUCCESS) {
-        std::fprintf(stderr, "ma_device_start failed\n");
-    }
+	if (ma_device_start(&Device) != MA_SUCCESS)
+	{
+		std::fprintf(stderr, "ma_device_start failed\n");
+	}
 
-    // ---- Main loop ----------------------------------------------------------
-    while (!glfwWindowShouldClose(window)) {
-        glfwPollEvents();
+	// ---- Main loop ----------------------------------------------------------
+	while (!glfwWindowShouldClose(Window))
+	{
+		glfwPollEvents();
 
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
+		ImGui_ImplOpenGL3_NewFrame();
+		ImGui_ImplGlfw_NewFrame();
+		ImGui::NewFrame();
 
-        ImGui::Begin("NodeSynth — Phase 0");
-        ImGui::Text("Sample rate: %.0f Hz", audio.sampleRate);
-        ImGui::Text("Backend:     %s", ma_get_backend_name(device.pContext->backend));
+		ImGui::Begin("NodeSynth — Phase 0");
+		ImGui::Text("Sample rate: %.0f Hz", Audio.SampleRate);
+		ImGui::Text("Backend:     %s", ma_get_backend_name(Device.pContext->backend));
 
-        float freq = audio.frequency.load(std::memory_order_relaxed);
-        if (ImGui::SliderFloat("Frequency (Hz)", &freq, 20.0f, 2000.0f, "%.1f", ImGuiSliderFlags_Logarithmic)) {
-            audio.frequency.store(freq, std::memory_order_relaxed);
-        }
+		float Freq = Audio.Frequency.load(std::memory_order_relaxed);
+		if (ImGui::SliderFloat("Frequency (Hz)", &Freq, 20.0f, 2000.0f, "%.1f", ImGuiSliderFlags_Logarithmic))
+		{
+			Audio.Frequency.store(Freq, std::memory_order_relaxed);
+		}
 
-        float amp = audio.amplitude.load(std::memory_order_relaxed);
-        if (ImGui::SliderFloat("Amplitude", &amp, 0.0f, 1.0f)) {
-            audio.amplitude.store(amp, std::memory_order_relaxed);
-        }
+		float Amp = Audio.Amplitude.load(std::memory_order_relaxed);
+		if (ImGui::SliderFloat("Amplitude", &Amp, 0.0f, 1.0f))
+		{
+			Audio.Amplitude.store(Amp, std::memory_order_relaxed);
+		}
 
-        bool muted = audio.muted.load(std::memory_order_relaxed);
-        if (ImGui::Checkbox("Mute", &muted)) {
-            audio.muted.store(muted, std::memory_order_relaxed);
-        }
-        ImGui::End();
+		bool bMuted = Audio.bMuted.load(std::memory_order_relaxed);
+		if (ImGui::Checkbox("Mute", &bMuted))
+		{
+			Audio.bMuted.store(bMuted, std::memory_order_relaxed);
+		}
+		ImGui::End();
 
-        ImGui::Render();
-        int w, h;
-        glfwGetFramebufferSize(window, &w, &h);
-        glViewport(0, 0, w, h);
-        glClearColor(0.10f, 0.11f, 0.13f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        glfwSwapBuffers(window);
-    }
+		ImGui::Render();
+		int Width;
+		int Height;
+		glfwGetFramebufferSize(Window, &Width, &Height);
+		glViewport(0, 0, Width, Height);
+		glClearColor(0.10f, 0.11f, 0.13f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+		glfwSwapBuffers(Window);
+	}
 
-    // ---- Shutdown -----------------------------------------------------------
-    ma_device_uninit(&device);
+	// ---- Shutdown -----------------------------------------------------------
+	ma_device_uninit(&Device);
 
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
+	ImGui_ImplOpenGL3_Shutdown();
+	ImGui_ImplGlfw_Shutdown();
+	ImGui::DestroyContext();
 
-    glfwDestroyWindow(window);
-    glfwTerminate();
-    return 0;
+	glfwDestroyWindow(Window);
+	glfwTerminate();
+	return 0;
 }
