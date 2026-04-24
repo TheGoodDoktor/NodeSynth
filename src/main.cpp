@@ -1,10 +1,11 @@
-// Phase 0: window + ImGui + sine-from-callback.
-// Intentionally all in one file — abstractions arrive with Phase 1.
+// Phase 1: graph-driven synth with a node editor UI.
+// Audio callback walks a compiled FAudioGraph snapshot; the UI thread rebuilds
+// and atomically publishes a new snapshot whenever the graph is edited.
 
+#include <algorithm>
 #include <atomic>
-#include <cmath>
 #include <cstdio>
-#include <numbers>
+#include <memory>
 
 #include <GLFW/glfw3.h>
 #include <imgui.h>
@@ -12,51 +13,80 @@
 #include <imgui_impl_opengl3.h>
 #include <miniaudio.h>
 
+#include "dsp/Gain.h"
+#include "dsp/Node.h"
+#include "dsp/Oscillator.h"
+#include "dsp/Output.h"
+#include "graph/Graph.h"
+#include "ui/Editor.h"
+
+using namespace NodeSynth;
+
 namespace
 {
 	struct FAudioState
 	{
-		// Phase is read and written by the audio thread only.
-		// Other fields are written by the UI thread and read by the audio thread.
-		double Phase = 0.0;
-		double SampleRate = 0.0;
-		std::atomic<float> Frequency{ 440.0f };
-		std::atomic<float> Amplitude{ 0.15f };
-		std::atomic<bool> bMuted{ false };
+		std::atomic<std::shared_ptr<FAudioGraph>> Graph{ nullptr };
+		std::atomic<double> SampleRate{ 48000.0 };
 	};
 
 	void AudioCallback(ma_device* Device, void* Output, const void* /*Input*/, ma_uint32 FrameCount)
 	{
 		FAudioState* State = static_cast<FAudioState*>(Device->pUserData);
+		std::shared_ptr<FAudioGraph> Graph = State->Graph.load();
+
 		float* Samples = static_cast<float*>(Output);
-
 		const ma_uint32 Channels = Device->playback.channels;
-		const float Freq = State->Frequency.load(std::memory_order_relaxed);
-		const float Amp = State->bMuted.load(std::memory_order_relaxed)
-			? 0.0f
-			: State->Amplitude.load(std::memory_order_relaxed);
+		const double SampleRate = State->SampleRate.load(std::memory_order_relaxed);
 
-		const double TwoPi = std::numbers::pi * 2.0;
-		const double PhaseInc = TwoPi * static_cast<double>(Freq) / State->SampleRate;
+		ma_uint32 Remaining = FrameCount;
+		float* Cursor = Samples;
 
-		for (ma_uint32 FrameIndex = 0; FrameIndex < FrameCount; ++FrameIndex)
+		while (Remaining > 0)
 		{
-			const float Sample = Amp * static_cast<float>(std::sin(State->Phase));
-			for (ma_uint32 ChannelIndex = 0; ChannelIndex < Channels; ++ChannelIndex)
+			const uint32_t Block = (Remaining < BlockSize) ? Remaining : BlockSize;
+			FProcessContext Ctx;
+			Ctx.BlockSize = Block;
+			Ctx.SampleRate = SampleRate;
+
+			const float* OutputBuf = nullptr;
+			if (Graph && Graph->OutputNode)
 			{
-				Samples[FrameIndex * Channels + ChannelIndex] = Sample;
+				Graph->Process(Ctx);
+				OutputBuf = Graph->OutputNode->GetInputBuffer(0);
 			}
-			State->Phase += PhaseInc;
-			if (State->Phase >= TwoPi)
+
+			for (uint32_t I = 0; I < Block; ++I)
 			{
-				State->Phase -= TwoPi;
+				const float Sample = OutputBuf ? OutputBuf[I] : 0.0f;
+				for (uint32_t C = 0; C < Channels; ++C)
+				{
+					Cursor[I * Channels + C] = Sample;
+				}
 			}
+
+			Cursor += Block * Channels;
+			Remaining -= Block;
 		}
 	}
 
 	void GlfwErrorCallback(int Code, const char* Description)
 	{
 		std::fprintf(stderr, "GLFW error %d: %s\n", Code, Description);
+	}
+
+	void SeedDefaultPatch(FGraphModel& Model)
+	{
+		auto Osc = std::make_shared<FOscillator>();
+		auto GainNode = std::make_shared<FGain>();
+		auto Out = std::make_shared<FOutput>();
+
+		const FNodeId OscId = Model.AddNode(Osc, 60.0f, 120.0f);
+		const FNodeId GainId = Model.AddNode(GainNode, 320.0f, 120.0f);
+		const FNodeId OutId = Model.AddNode(Out, 580.0f, 120.0f);
+
+		Model.AddLink(OscId, 0, GainId, 0);
+		Model.AddLink(GainId, 0, OutId, 0);
 	}
 }
 
@@ -70,7 +100,6 @@ int main()
 		return 1;
 	}
 
-	// OpenGL 3.2 Core — works on macOS (where it's the ceiling) and Windows.
 	const char* GlslVersion = "#version 150";
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
@@ -79,7 +108,7 @@ int main()
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
 #endif
 
-	GLFWwindow* Window = glfwCreateWindow(1280, 800, "NodeSynth — Phase 0", nullptr, nullptr);
+	GLFWwindow* Window = glfwCreateWindow(1440, 900, "NodeSynth — Phase 1", nullptr, nullptr);
 	if (!Window)
 	{
 		std::fprintf(stderr, "glfwCreateWindow failed\n");
@@ -87,7 +116,7 @@ int main()
 		return 1;
 	}
 	glfwMakeContextCurrent(Window);
-	glfwSwapInterval(1); // vsync
+	glfwSwapInterval(1);
 
 	// ---- Dear ImGui ---------------------------------------------------------
 	IMGUI_CHECKVERSION();
@@ -101,15 +130,21 @@ int main()
 	ImGui_ImplGlfw_InitForOpenGL(Window, true);
 	ImGui_ImplOpenGL3_Init(GlslVersion);
 
-	// ---- miniaudio ----------------------------------------------------------
-	FAudioState Audio;
+	// ---- Graph + editor -----------------------------------------------------
+	FGraphModel Model;
+	FGraphEditorPanel EditorPanel;
+	SeedDefaultPatch(Model);
 
+	FAudioState AudioState;
+	AudioState.Graph.store(Model.Compile(48000.0));
+
+	// ---- miniaudio ----------------------------------------------------------
 	ma_device_config Config = ma_device_config_init(ma_device_type_playback);
 	Config.playback.format = ma_format_f32;
 	Config.playback.channels = 2;
-	Config.sampleRate = 0; // native rate
+	Config.sampleRate = 0;
 	Config.dataCallback = AudioCallback;
-	Config.pUserData = &Audio;
+	Config.pUserData = &AudioState;
 
 	ma_device Device;
 	if (ma_device_init(nullptr, &Config, &Device) != MA_SUCCESS)
@@ -122,7 +157,9 @@ int main()
 		glfwTerminate();
 		return 1;
 	}
-	Audio.SampleRate = static_cast<double>(Device.sampleRate);
+
+	AudioState.SampleRate.store(static_cast<double>(Device.sampleRate));
+	AudioState.Graph.store(Model.Compile(static_cast<double>(Device.sampleRate)));
 
 	if (ma_device_start(&Device) != MA_SUCCESS)
 	{
@@ -138,32 +175,50 @@ int main()
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
 
-		ImGui::Begin("NodeSynth — Phase 0");
-		ImGui::Text("Sample rate: %.0f Hz", Audio.SampleRate);
-		ImGui::Text("Backend:     %s", ma_get_backend_name(Device.pContext->backend));
-
-		float Freq = Audio.Frequency.load(std::memory_order_relaxed);
-		if (ImGui::SliderFloat("Frequency (Hz)", &Freq, 20.0f, 2000.0f, "%.1f", ImGuiSliderFlags_Logarithmic))
-		{
-			Audio.Frequency.store(Freq, std::memory_order_relaxed);
-		}
-
-		float Amp = Audio.Amplitude.load(std::memory_order_relaxed);
-		if (ImGui::SliderFloat("Amplitude", &Amp, 0.0f, 1.0f))
-		{
-			Audio.Amplitude.store(Amp, std::memory_order_relaxed);
-		}
-
-		bool bMuted = Audio.bMuted.load(std::memory_order_relaxed);
-		if (ImGui::Checkbox("Mute", &bMuted))
-		{
-			Audio.bMuted.store(bMuted, std::memory_order_relaxed);
-		}
+		// Build a root dockspace so the two panels tile nicely.
+		const ImGuiViewport* Viewport = ImGui::GetMainViewport();
+		ImGui::SetNextWindowPos(Viewport->WorkPos);
+		ImGui::SetNextWindowSize(Viewport->WorkSize);
+		ImGui::SetNextWindowViewport(Viewport->ID);
+		ImGuiWindowFlags HostFlags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar
+			| ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
+			| ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus
+			| ImGuiWindowFlags_NoBackground;
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+		ImGui::Begin("##DockspaceHost", nullptr, HostFlags);
+		ImGui::PopStyleVar(3);
+		ImGui::DockSpace(ImGui::GetID("RootDockSpace"), ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_PassthruCentralNode);
 		ImGui::End();
 
+		// Node editor
+		ImGui::Begin("Graph");
+		const bool bGraphChanged = EditorPanel.Draw(Model);
+		ImGui::End();
+
+		// Property panel
+		ImGui::Begin("Properties");
+		EditorPanel.DrawPropertyPanel(Model);
+		ImGui::End();
+
+		// Status
+		ImGui::Begin("Audio");
+		ImGui::Text("Sample rate: %.0f Hz", AudioState.SampleRate.load());
+		ImGui::Text("Backend:     %s", ma_get_backend_name(Device.pContext->backend));
+		ImGui::Text("Block size:  %u samples", BlockSize);
+		ImGui::Text("Nodes:       %zu", Model.GetNodes().size());
+		ImGui::Text("Links:       %zu", Model.GetLinks().size());
+		ImGui::End();
+
+		if (bGraphChanged)
+		{
+			AudioState.Graph.store(Model.Compile(AudioState.SampleRate.load()));
+		}
+
 		ImGui::Render();
-		int Width;
-		int Height;
+		int Width = 0;
+		int Height = 0;
 		glfwGetFramebufferSize(Window, &Width, &Height);
 		glViewport(0, 0, Width, Height);
 		glClearColor(0.10f, 0.11f, 0.13f, 1.0f);
@@ -174,6 +229,10 @@ int main()
 
 	// ---- Shutdown -----------------------------------------------------------
 	ma_device_uninit(&Device);
+
+	// Drop the current graph before ImGui shutdown so any node destructors run
+	// on the UI thread (and well before the audio thread is gone).
+	AudioState.Graph.store(nullptr);
 
 	ImGui_ImplOpenGL3_Shutdown();
 	ImGui_ImplGlfw_Shutdown();
