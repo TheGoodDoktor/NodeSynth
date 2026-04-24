@@ -1,4 +1,102 @@
-# NodeSynth — Claude guidance
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+NodeSynth is a standalone C++20 node-based software synthesizer with a Dear ImGui front-end. The long-form roadmap lives in `docs/PLAN.md`.
+
+**Current status (2026-04-24):** Phases 0 and 1 complete — a graph-driven synth with Oscillator (sine), Gain, and Output nodes, a working node editor (add/delete/drag-link/property sliders), and a live-updating audio callback. Phase 2 (more oscillator shapes, ADSR, SVF filter, VCA, MIDI input) is next. One Phase 1 bullet from the plan was deferred — see the deferred-work note below.
+
+## Build & run
+
+Dependencies are fetched via CMake `FetchContent` — there is no vcpkg, no submodules, and no manual setup step. The first configure will clone GLFW, Dear ImGui (docking branch), miniaudio, and `thedmd/imgui-node-editor` into `build/_deps/`.
+
+```bash
+# Configure (multi-config on Windows, single-config elsewhere)
+cmake -S . -B build
+
+# Build (use --config Release on Windows/Xcode; CMAKE_BUILD_TYPE=Release is the default otherwise)
+cmake --build build --config Release --parallel
+
+# Run
+./build/Release/nodesynth.exe      # Windows MSVC
+./build/nodesynth                  # Ninja / Unix Makefiles
+open ./build/nodesynth.app         # macOS (MACOSX_BUNDLE target)
+```
+
+CI (`.github/workflows/build.yml`) runs `{windows-latest, macos-latest}` — keep both green. There is no test target, no lint/format step, and no test framework wired up yet (the plan calls for Catch2 but it hasn't landed).
+
+### imgui-node-editor patch
+
+`CMakeLists.txt` rewrites `imgui_extra_math.inl` at configure time to drop a duplicate `operator*(float, ImVec2&)` that collides with Dear ImGui's own operator (enabled project-wide via `IMGUI_DEFINE_MATH_OPERATORS` in `src/NodeSynthImConfig.h`). If that file regenerates or gets clobbered, the collision comes back as a link-time or template-overload error — re-run CMake configure to reapply the patch.
+
+## Architecture
+
+### Two-thread model with atomic snapshot swap
+
+The core concurrency design is the key thing to understand before touching graph or DSP code:
+
+- **UI thread** owns `FGraphModel` (`src/graph/Graph.h`). All edits — add/remove nodes, add/remove links — mutate this model. It is never touched from the audio thread.
+- **Audio thread** (miniaudio callback in `src/main.cpp`) reads a `std::shared_ptr<FAudioGraph>` held in `FAudioState::Graph` (an `std::atomic<std::shared_ptr<…>>`). The callback `load()`s the current snapshot and walks its pre-sorted `OrderedNodes`.
+- **Publishing edits:** whenever `FGraphEditorPanel::Draw()` reports `bGraphChanged`, `main.cpp` calls `Model.Compile(SampleRate)` on the UI thread and `store()`s the resulting `FAudioGraph` into `AudioState.Graph`. The old snapshot's `shared_ptr` gets dropped on whichever thread releases it last — this is why node destructors must be safe to run on either thread (see the shutdown sequence in `main.cpp` which deliberately nulls the graph before ImGui teardown).
+- **No command queue yet.** `docs/PLAN.md` describes an SPSC command queue for UI→Audio; the current implementation side-steps it by recompiling the whole graph on every edit and atomically swapping. Parameter changes flow through `std::atomic<float>` members on each node (see `FOscillator::Frequency`), not through the graph swap. **This is the one Phase 1 plan bullet deferred to later — see "Deferred from Phase 1" below.**
+
+### Real-time rules for the audio callback
+
+The audio callback runs on miniaudio's OS-priority-elevated thread. Code reachable from `FAudioGraph::Process` or any `INode::Process` must not:
+- allocate, lock, or call anything that might (no `std::vector` resize, no `std::string`, no `shared_ptr` construction/destruction).
+- block on I/O or syscalls.
+
+Parameter reads use `std::memory_order_relaxed` atomics — that's intentional; the plan's zipper-noise smoother hasn't been added yet.
+
+### Block-based DSP
+
+- `BlockSize` is a compile-time constant (64 samples) in `src/dsp/Node.h`. Every node processes exactly one block per `Process()` call. The audio callback in `main.cpp` chunks the device frame count into `BlockSize` windows.
+- `TNodeBase<NumInputs, NumOutputs>` (in `Node.h`) is the convenience base for concrete nodes. It owns the output buffers (aligned `float[NumOutputs][BlockSize]`) and stores input pointers. **Nodes do not allocate buffers at runtime** — routing is pointer-plumbing done once at `Compile()` time.
+- Unconnected inputs receive `nullptr`; each node's `Process()` must handle that case (see `FGain::Process` for the pattern).
+
+### Graph compilation
+
+`FGraphModel::Compile()` in `src/graph/Graph.cpp`:
+1. Finds the sink by string-comparing `GetTypeName() == "Output"`. There is no central `NodeFactory` or registry yet — the sink is identified by type name, and new node types currently have to be seeded manually (see `SeedDefaultPatch` in `main.cpp`). Phase 1 accepts exactly one `FOutput`; extras are ignored.
+2. Reverse-DFS from the sink produces a producers-first `OrderedNodes` vector. Nodes not reachable from the output are omitted entirely.
+3. For every reachable node, clears input pointers then calls `Prepare(SampleRate)`.
+4. Walks `Links` and plumbs each upstream `GetOutputBuffer()` into the downstream `SetInputBuffer()`. Buffer pointers remain valid for the lifetime of the snapshot's `shared_ptr` to each node.
+
+Cycle prevention lives in `WouldCreateCycle` (DFS at `AddLink` time). Port type mismatches and out-of-range ports are also rejected at `AddLink`. An input port holds at most one link; connecting a second replaces the first.
+
+### Directory layout (current)
+
+```
+src/
+├── main.cpp                 # App shell: GLFW, ImGui, miniaudio, main loop, audio callback
+├── NodeSynthImConfig.h      # IMGUI_USER_CONFIG (enables IMGUI_DEFINE_MATH_OPERATORS project-wide)
+├── dsp/
+│   ├── Node.h               # INode, TNodeBase, FProcessContext, BlockSize
+│   ├── Oscillator.h         # Sine only so far
+│   ├── Gain.h
+│   └── Output.h             # Sink — identified by GetTypeName() == "Output"
+├── graph/
+│   └── Graph.{h,cpp}        # FGraphModel (UI side) + FAudioGraph (compiled snapshot)
+└── ui/
+    └── Editor.{h,cpp}       # imgui-node-editor panel + property panel. Pin IDs pack (NodeId, PortIndex, IsOutput) into a uint64.
+```
+
+The `app/`, `audio/`, `io/` directories in `docs/PLAN.md` don't exist yet — don't cite them as if they do.
+
+## Deferred from Phase 1
+
+**SPSC command queue (UI → Audio).** The plan specifies a lock-free command queue carrying `AddNode` / `RemoveNode` / `Connect` / `Disconnect` / `SetParam` records. It's not built. Today, any structural edit recompiles the whole `FAudioGraph` on the UI thread and atomic-swaps the `shared_ptr` into `FAudioState::Graph`; parameter changes use per-node `std::atomic<float>`.
+
+This works for Phase 1's scale but should land before either of:
+- **Phase 3 polyphony**, where voice allocation needs fine-grained messages rather than whole-graph swaps.
+- **Phase 3 patch save/load**, where atomic `SetParam` replay during deserialization will want queue semantics.
+
+If you're adding features in between (Phase 2 nodes: saw/square/triangle/noise oscillators, ADSR, SVF filter, VCA, MIDI input), the current swap-on-edit scheme is still adequate — don't pre-build the queue speculatively, but don't add new shortcuts that would make the queue harder to introduce later either.
+
+Minor Phase 1 polish also outstanding:
+- `FOutput` is not enforced as "exactly one per graph" — extras are silently ignored by `Compile`.
+- No parameter smoothing (plan flags this for `Control` inputs; no `Control`-typed inputs exist yet).
+- Editor layout / node positions don't persist across runs (`ed::Config::SettingsFile = nullptr`, `imgui.ini` is gitignored).
 
 ## Coding style
 

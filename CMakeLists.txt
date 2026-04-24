@@ -107,14 +107,22 @@ target_link_libraries(imgui_node_editor_lib PUBLIC imgui)
 # ---- NodeSynth executable ---------------------------------------------------
 # Console subsystem on Windows for now (keeps stdout/stderr visible during dev).
 # We'll switch to the GUI subsystem + WinMain shim when the project is user-facing.
-add_executable(nodesynth MACOSX_BUNDLE
-    src/main.cpp
-    src/graph/Graph.cpp
-    src/ui/Editor.cpp
+
+# Glob so new nodes/panels are picked up without editing this file. CONFIGURE_DEPENDS
+# makes the build system re-scan on rebuild; the tradeoff vs. an explicit list is
+# acceptable at this project's size.
+file(GLOB_RECURSE NODESYNTH_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
 )
+
+add_executable(nodesynth MACOSX_BUNDLE ${NODESYNTH_SOURCES})
 target_include_directories(nodesynth PRIVATE src)
 target_compile_definitions(nodesynth PRIVATE NOMINMAX)
 target_link_libraries(nodesynth PRIVATE imgui miniaudio imgui_node_editor_lib)
+
+# Mirror the on-disk src/ tree into Visual Studio filter folders (and Xcode groups).
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" PREFIX "src" FILES ${NODESYNTH_SOURCES})
 
 if(WIN32)
     target_link_libraries(nodesynth PRIVATE opengl32)
