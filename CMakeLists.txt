@@ -72,6 +72,18 @@ FetchContent_Declare(miniaudio
 )
 FetchContent_MakeAvailable(miniaudio)
 
+# ---- RtMidi -----------------------------------------------------------------
+# Cross-platform MIDI: WinMM on Windows, CoreMIDI on macOS, ALSA on Linux.
+set(RTMIDI_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(RTMIDI_BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
+set(RTMIDI_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(rtmidi
+    GIT_REPOSITORY https://github.com/thestk/rtmidi.git
+    GIT_TAG        6.0.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(rtmidi)
+
 # ---- imgui-node-editor ------------------------------------------------------
 # Upstream ships a CMakeLists that expects ImGui via find_package — not how we
 # vendor it. Populate the sources only and build a target of our own.
@@ -119,7 +131,7 @@ file(GLOB_RECURSE NODESYNTH_SOURCES CONFIGURE_DEPENDS
 add_executable(nodesynth MACOSX_BUNDLE ${NODESYNTH_SOURCES})
 target_include_directories(nodesynth PRIVATE src)
 target_compile_definitions(nodesynth PRIVATE NOMINMAX)
-target_link_libraries(nodesynth PRIVATE imgui miniaudio imgui_node_editor_lib)
+target_link_libraries(nodesynth PRIVATE imgui miniaudio imgui_node_editor_lib rtmidi)
 
 # Mirror the on-disk src/ tree into Visual Studio filter folders (and Xcode groups).
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" PREFIX "src" FILES ${NODESYNTH_SOURCES})
@@ -137,7 +149,37 @@ elseif(APPLE)
 endif()
 
 if(MSVC)
-    target_compile_options(nodesynth PRIVATE /W4 /permissive-)
+    # C4324: "structure was padded due to alignment specifier" — expected, we use alignas() intentionally on audio buffers.
+    target_compile_options(nodesynth PRIVATE /W4 /permissive- /wd4324)
 else()
     target_compile_options(nodesynth PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+# ---- Tests (Catch2 v3) ------------------------------------------------------
+option(NODESYNTH_BUILD_TESTS "Build NodeSynth unit tests" ON)
+if(NODESYNTH_BUILD_TESTS)
+    FetchContent_Declare(Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG        v3.5.4
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(Catch2)
+
+    file(GLOB_RECURSE NODESYNTH_TEST_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp"
+    )
+
+    add_executable(nodesynth_tests ${NODESYNTH_TEST_SOURCES}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/graph/Graph.cpp
+    )
+    target_include_directories(nodesynth_tests PRIVATE src)
+    target_compile_definitions(nodesynth_tests PRIVATE NOMINMAX)
+    target_link_libraries(nodesynth_tests PRIVATE Catch2::Catch2WithMain)
+
+    enable_testing()
+    include(CTest)
+    include(Catch)
+    catch_discover_tests(nodesynth_tests)
+
+    source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/tests" PREFIX "tests" FILES ${NODESYNTH_TEST_SOURCES})
 endif()

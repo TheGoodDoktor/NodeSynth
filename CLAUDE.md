@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 NodeSynth is a standalone C++20 node-based software synthesizer with a Dear ImGui front-end. The long-form roadmap lives in `docs/PLAN.md`.
 
-**Current status (2026-04-24):** Phases 0 and 1 complete — a graph-driven synth with Oscillator (sine), Gain, and Output nodes, a working node editor (add/delete/drag-link/property sliders), and a live-updating audio callback. Phase 2 (more oscillator shapes, ADSR, SVF filter, VCA, MIDI input) is next. One Phase 1 bullet from the plan was deferred — see the deferred-work note below.
+**Current status (2026-04-24):** Phases 0, 1, and 2 complete — the subtractive mono synth target patch (`MIDI → Osc → SVF → VCA → Output`, with ADSR driving VCA gain and MIDI frequency driving the oscillator) is buildable in the UI. Node set: Oscillator (Sine/Saw/Square/Triangle/Noise with PolyBLEP), Gain, VCA, ADSR, SVF (TPT/ZDF form), Gate (manual toggle), MIDI Input, Output. Catch2 test harness (24 tests, 10k+ assertions) covers graph, smoother, all DSP nodes, and the SPSC MIDI ring under concurrent producer/consumer. Phase 3 (polyphony, LFO, math/utility nodes, patch save/load) is next. One Phase 1 bullet from the plan (SPSC command queue for UI→Audio graph edits) was deferred — see the deferred-work note below.
 
 ## Build & run
 
@@ -81,7 +81,17 @@ src/
     └── Editor.{h,cpp}       # imgui-node-editor panel + property panel. Pin IDs pack (NodeId, PortIndex, IsOutput) into a uint64.
 ```
 
-The `app/`, `audio/`, `io/` directories in `docs/PLAN.md` don't exist yet — don't cite them as if they do.
+Phase 2 added `src/midi/` for the SPSC `FMidiRing` and `src/dsp/MidiInput.{h,cpp}` for the RtMidi-backed `FMidiInput` node. Tests live under `tests/` (header-globbed into the `nodesynth_tests` Catch2 target). The `app/`, `audio/`, `io/` directories in `docs/PLAN.md` still don't exist — don't cite them as if they do.
+
+### Phase 2 additions — quick reference
+
+- `EParamKind` (`dsp/Node.h`): `Float` / `Choice` / `Bool`. The property panel picks `SliderFloat` / combo / checkbox accordingly. `FParamInfo::Choices` is only populated for `Choice`-kind params.
+- `FOnePoleSmoother` (`dsp/Smoother.h`): applied to `FGain::Gain` and `FOscillator::Amplitude` as reference. Not applied blanket to every param — only to slider-driven values where zipper noise is audible.
+- `FOscillator` ports: when a `Freq` or `Amp` Control input is connected, it overrides the param slider sample-by-sample. Disconnected → param value (smoothed for Amp).
+- `FSvf` topology: linear-trapezoidal (Zavalishin/Simper TPT), `k = 2*(1 - Res)` mapping. Cutoff clamped to `[20 Hz, 0.49*SR]` every sample. Self-oscillation at Res=1 is tested for numerical stability.
+- `FAdsr`: exponential approach per stage (`1 - exp(-1/tau)`), re-trigger preserves current level to avoid clicks, legato across held MIDI notes (gate stays high until all notes released).
+- **MIDI threading.** `FMidiInput` owns its `RtMidiIn`. Device open/close happens on the UI thread from `SetParamValue(Param_Device, …)`. RtMidi's callback thread writes to `FMidiRing` (256-slot SPSC); `Process()` drains at block start. Events are quantized to sample 0 of the block they're drained in — sample-accurate MIDI is Phase 3+.
+- **MIDI cleanup caveat.** `RtMidiIn::~RtMidiIn` joins its callback thread, so `FMidiInput::~FMidiInput` can block briefly. If the audio thread drops the last `shared_ptr` to a compiled graph that still held the MIDI node, destruction runs there and may cause an audible dropout. In practice, new-graph publishes run on the UI thread, so old graphs are typically released on UI too. Proper deferred-destroy is a Phase 3 concern.
 
 ## Deferred from Phase 1
 

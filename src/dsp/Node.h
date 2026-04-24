@@ -25,6 +25,13 @@ namespace NodeSynth
 		EPortType Type = EPortType::Audio;
 	};
 
+	enum class EParamKind : uint8_t
+	{
+		Float,   // continuous slider, MinValue..MaxValue
+		Choice,  // combo box, integer index into Choices[]
+		Bool,    // checkbox, stored as 0.0f / 1.0f
+	};
+
 	struct FParamInfo
 	{
 		std::string Name;
@@ -32,6 +39,8 @@ namespace NodeSynth
 		float MaxValue = 1.0f;
 		float DefaultValue = 0.0f;
 		bool bLogarithmic = false;
+		EParamKind Kind = EParamKind::Float;
+		std::vector<std::string> Choices;  // populated only when Kind == Choice
 	};
 
 	struct FProcessContext

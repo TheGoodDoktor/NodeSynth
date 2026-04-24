@@ -3,6 +3,7 @@
 #include <atomic>
 
 #include "dsp/Node.h"
+#include "dsp/Smoother.h"
 
 namespace NodeSynth
 {
@@ -29,7 +30,7 @@ namespace NodeSynth
 
 		std::vector<FParamInfo> GetParamInfos() const override
 		{
-			return { { "Gain", 0.0f, 2.0f, 1.0f, false } };
+			return { { "Gain", 0.0f, 2.0f, 1.0f, false, EParamKind::Float, {} } };
 		}
 
 		float GetParamValue(uint32_t Index) const override
@@ -45,11 +46,17 @@ namespace NodeSynth
 			}
 		}
 
+		void Prepare(double SampleRate) override
+		{
+			GainSmoother.Prepare(SampleRate);
+			GainSmoother.Reset(Gain.load(std::memory_order_relaxed));
+		}
+
 		void Process(const FProcessContext& Ctx) override
 		{
 			float* Out = GetOutputBuffer(0);
 			const float* In = GetInputBuffer(0);
-			const float G = Gain.load(std::memory_order_relaxed);
+			GainSmoother.SetTarget(Gain.load(std::memory_order_relaxed));
 
 			if (In == nullptr)
 			{
@@ -62,12 +69,13 @@ namespace NodeSynth
 			{
 				for (uint32_t I = 0; I < Ctx.BlockSize; ++I)
 				{
-					Out[I] = In[I] * G;
+					Out[I] = In[I] * GainSmoother.Tick();
 				}
 			}
 		}
 
 	private:
 		std::atomic<float> Gain{ 1.0f };
+		FOnePoleSmoother GainSmoother;
 	};
 }

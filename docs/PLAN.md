@@ -111,6 +111,7 @@ Features:
 - **VCA** — audio × control.
 - **MIDI Input** — outputs gate + note frequency + velocity. Single voice (monophonic) for now.
 - **Done when:** user can build a subtractive mono synth and play it from a MIDI keyboard.
+- **Detailed breakdown:** see [`PLAN-PHASE-2.md`](PLAN-PHASE-2.md) for sub-phase sequencing, locked decisions (Control port convention, MIDI threading), and risk list.
 
 ### Phase 3 — Polyphony & modulation
 

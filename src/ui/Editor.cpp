@@ -7,9 +7,14 @@
 #include <imgui.h>
 #include <imgui_node_editor.h>
 
+#include "dsp/Adsr.h"
 #include "dsp/Gain.h"
+#include "dsp/GateButton.h"
+#include "dsp/MidiInput.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
+#include "dsp/Svf.h"
+#include "dsp/Vca.h"
 
 namespace ed = ax::NodeEditor;
 
@@ -206,6 +211,26 @@ namespace NodeSynth
 			{
 				SpawnNode(std::make_shared<FGain>());
 			}
+			if (ImGui::MenuItem("VCA"))
+			{
+				SpawnNode(std::make_shared<FVca>());
+			}
+			if (ImGui::MenuItem("SVF"))
+			{
+				SpawnNode(std::make_shared<FSvf>());
+			}
+			if (ImGui::MenuItem("ADSR"))
+			{
+				SpawnNode(std::make_shared<FAdsr>());
+			}
+			if (ImGui::MenuItem("Gate"))
+			{
+				SpawnNode(std::make_shared<FGateButton>());
+			}
+			if (ImGui::MenuItem("MIDI Input"))
+			{
+				SpawnNode(std::make_shared<FMidiInput>());
+			}
 			if (ImGui::MenuItem("Output"))
 			{
 				SpawnNode(std::make_shared<FOutput>());
@@ -255,10 +280,58 @@ namespace NodeSynth
 		{
 			const FParamInfo& Info = Infos[I];
 			float Value = Rec->Node->GetParamValue(I);
-			const ImGuiSliderFlags Flags = Info.bLogarithmic ? ImGuiSliderFlags_Logarithmic : 0;
-			if (ImGui::SliderFloat(Info.Name.c_str(), &Value, Info.MinValue, Info.MaxValue, "%.3f", Flags))
+
+			switch (Info.Kind)
 			{
-				Rec->Node->SetParamValue(I, Value);
+				case EParamKind::Choice:
+				{
+					int Index = static_cast<int>(Value);
+					if (Index < 0)
+					{
+						Index = 0;
+					}
+					if (Index >= static_cast<int>(Info.Choices.size()))
+					{
+						Index = static_cast<int>(Info.Choices.size()) - 1;
+					}
+					const char* Preview = Info.Choices.empty() ? "" : Info.Choices[Index].c_str();
+					if (ImGui::BeginCombo(Info.Name.c_str(), Preview))
+					{
+						for (int C = 0; C < static_cast<int>(Info.Choices.size()); ++C)
+						{
+							const bool bSelected = (C == Index);
+							if (ImGui::Selectable(Info.Choices[C].c_str(), bSelected))
+							{
+								Rec->Node->SetParamValue(I, static_cast<float>(C));
+							}
+							if (bSelected)
+							{
+								ImGui::SetItemDefaultFocus();
+							}
+						}
+						ImGui::EndCombo();
+					}
+					break;
+				}
+				case EParamKind::Bool:
+				{
+					bool bChecked = Value > 0.5f;
+					if (ImGui::Checkbox(Info.Name.c_str(), &bChecked))
+					{
+						Rec->Node->SetParamValue(I, bChecked ? 1.0f : 0.0f);
+					}
+					break;
+				}
+				case EParamKind::Float:
+				default:
+				{
+					const ImGuiSliderFlags Flags = Info.bLogarithmic ? ImGuiSliderFlags_Logarithmic : 0;
+					if (ImGui::SliderFloat(Info.Name.c_str(), &Value, Info.MinValue, Info.MaxValue, "%.3f", Flags))
+					{
+						Rec->Node->SetParamValue(I, Value);
+					}
+					break;
+				}
 			}
 		}
 	}
