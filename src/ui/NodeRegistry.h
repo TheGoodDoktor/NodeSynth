@@ -20,4 +20,9 @@ namespace NodeSynth
 	};
 
 	const std::vector<FNodeRegistration>& GetNodeRegistry();
+
+	// Construct a node by its type-name string (matches INode::GetTypeName()).
+	// Returns nullptr if the type name is not registered. Used by the patch
+	// serializer.
+	std::shared_ptr<INode> MakeNodeByTypeName(const std::string& TypeName);
 }

@@ -5,7 +5,11 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
 #include <memory>
+#include <string>
 
 #include <GLFW/glfw3.h>
 #include <imgui.h>
@@ -20,6 +24,7 @@
 #include "dsp/Output.h"
 #include "dsp/VirtualKeyboard.h"
 #include "graph/Graph.h"
+#include "io/PatchSerializer.h"
 #include "ui/Editor.h"
 #include "ui/Palette.h"
 
@@ -102,6 +107,34 @@ namespace
 		Model.AddLink(OscId, 0, GainId, 0);
 		Model.AddLink(GainId, 0, OutId, 0);
 	}
+
+	// Returns the per-user settings directory (~/.nodesynth/, %USERPROFILE%\.nodesynth\
+	// on Windows). Falls back to the current directory if the home env var is unset.
+	std::filesystem::path GetSettingsDir()
+	{
+#ifdef _WIN32
+		const char* HomeVar = "USERPROFILE";
+#else
+		const char* HomeVar = "HOME";
+#endif
+		// MSVC flags std::getenv as "unsafe"; the underlying string is owned by
+		// the runtime and we never write to it, so this is fine — silence the
+		// warning locally rather than suppressing project-wide.
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4996)
+#endif
+		const char* Home = std::getenv(HomeVar);
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+		std::filesystem::path Dir = Home
+			? std::filesystem::path(Home) / ".nodesynth"
+			: std::filesystem::path(".");
+		std::error_code Ec;
+		std::filesystem::create_directories(Dir, Ec);
+		return Dir;
+	}
 }
 
 int main()
@@ -132,11 +165,19 @@ int main()
 	glfwMakeContextCurrent(Window);
 	glfwSwapInterval(1);
 
+	// ---- Settings directory + persistent layout files ---------------------
+	const std::filesystem::path SettingsDir = GetSettingsDir();
+	// These paths must outlive the ImGui / node-editor contexts since both
+	// libraries store the const char* and read it across the session.
+	const std::string ImGuiIniPath = (SettingsDir / "imgui.ini").string();
+	const std::string NodeEditorIniPath = (SettingsDir / "node_editor.ini").string();
+
 	// ---- Dear ImGui ---------------------------------------------------------
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& IO = ImGui::GetIO();
 	IO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	IO.IniFilename = ImGuiIniPath.c_str();
 #ifdef __APPLE__
 	IO.ConfigMacOSXBehaviors = true;
 #endif
@@ -146,8 +187,15 @@ int main()
 
 	// ---- Graph + editor -----------------------------------------------------
 	FGraphModel Model;
-	FGraphEditorPanel EditorPanel;
+	FGraphEditorPanel EditorPanel(NodeEditorIniPath);
 	SeedDefaultPatch(Model);
+
+	// File-menu state.
+	std::filesystem::path CurrentPatchPath;
+	std::string PathInputBuffer(512, '\0');
+	bool bOpenSavePopup = false;
+	bool bOpenLoadPopup = false;
+	std::string PopupErrorMsg;
 
 	FAudioState AudioState;
 	AudioState.Graph.store(Model.Compile(48000.0));
@@ -206,6 +254,144 @@ int main()
 		ImGui::PopStyleVar(3);
 		ImGui::DockSpace(ImGui::GetID("RootDockSpace"), ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_PassthruCentralNode);
 		ImGui::End();
+
+		// ---- File menu --------------------------------------------------------
+		bool bRequestNew = false;
+		bool bRequestSave = false;
+		if (ImGui::BeginMainMenuBar())
+		{
+			if (ImGui::BeginMenu("File"))
+			{
+				if (ImGui::MenuItem("New"))
+				{
+					bRequestNew = true;
+				}
+				if (ImGui::MenuItem("Open..."))
+				{
+					bOpenLoadPopup = true;
+				}
+				if (ImGui::MenuItem("Save", nullptr, false, !CurrentPatchPath.empty()))
+				{
+					bRequestSave = true;
+				}
+				if (ImGui::MenuItem("Save As..."))
+				{
+					bOpenSavePopup = true;
+				}
+				ImGui::EndMenu();
+			}
+			if (!CurrentPatchPath.empty())
+			{
+				const std::string Label = CurrentPatchPath.filename().string();
+				ImGui::TextDisabled("  [%s]", Label.c_str());
+			}
+			ImGui::EndMainMenuBar();
+		}
+
+		if (bOpenSavePopup)
+		{
+			ImGui::OpenPopup("Save Patch");
+			bOpenSavePopup = false;
+			if (!CurrentPatchPath.empty())
+			{
+				const std::string Cur = CurrentPatchPath.string();
+				const size_t Copy = std::min(Cur.size(), PathInputBuffer.size() - 1);
+				std::memcpy(PathInputBuffer.data(), Cur.data(), Copy);
+				PathInputBuffer[Copy] = '\0';
+			}
+			PopupErrorMsg.clear();
+		}
+		if (bOpenLoadPopup)
+		{
+			ImGui::OpenPopup("Open Patch");
+			bOpenLoadPopup = false;
+			PopupErrorMsg.clear();
+		}
+
+		if (ImGui::BeginPopupModal("Save Patch", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			ImGui::TextUnformatted("Path:");
+			ImGui::SetNextItemWidth(420.0f);
+			ImGui::InputText("##save_path", PathInputBuffer.data(), PathInputBuffer.size());
+			if (!PopupErrorMsg.empty())
+			{
+				ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", PopupErrorMsg.c_str());
+			}
+			if (ImGui::Button("Save"))
+			{
+				const std::filesystem::path P(PathInputBuffer.c_str());
+				if (P.empty())
+				{
+					PopupErrorMsg = "Path is empty.";
+				}
+				else if (SavePatch(Model, P))
+				{
+					CurrentPatchPath = P;
+					ImGui::CloseCurrentPopup();
+				}
+				else
+				{
+					PopupErrorMsg = "Save failed (see stderr).";
+				}
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel"))
+			{
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
+
+		if (ImGui::BeginPopupModal("Open Patch", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			ImGui::TextUnformatted("Path:");
+			ImGui::SetNextItemWidth(420.0f);
+			ImGui::InputText("##load_path", PathInputBuffer.data(), PathInputBuffer.size());
+			if (!PopupErrorMsg.empty())
+			{
+				ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", PopupErrorMsg.c_str());
+			}
+			if (ImGui::Button("Open"))
+			{
+				const std::filesystem::path P(PathInputBuffer.c_str());
+				auto Loaded = LoadPatch(P);
+				if (Loaded)
+				{
+					Model = std::move(Loaded->Model);
+					EditorPanel.OnModelReplaced();
+					CurrentPatchPath = P;
+					AudioState.Graph.store(Model.Compile(AudioState.SampleRate.load()));
+					for (const auto& Cmd : Loaded->InitialParams)
+					{
+						AudioState.Commands.Push(Cmd);
+					}
+					ImGui::CloseCurrentPopup();
+				}
+				else
+				{
+					PopupErrorMsg = "Load failed (see stderr).";
+				}
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel"))
+			{
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
+
+		if (bRequestNew)
+		{
+			Model = FGraphModel{};
+			Model.AddNode(std::make_shared<FOutput>(), 600.0f, 200.0f);
+			EditorPanel.OnModelReplaced();
+			CurrentPatchPath.clear();
+			AudioState.Graph.store(Model.Compile(AudioState.SampleRate.load()));
+		}
+		if (bRequestSave && !CurrentPatchPath.empty())
+		{
+			SavePatch(Model, CurrentPatchPath);
+		}
 
 		// Node editor
 		ImGui::Begin("Graph");

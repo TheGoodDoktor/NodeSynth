@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include "graph/AudioCommand.h"
 #include "graph/Graph.h"
 
@@ -10,7 +12,11 @@ namespace NodeSynth
 	class FGraphEditorPanel
 	{
 	public:
-		FGraphEditorPanel();
+		// SettingsFile: path the imgui-node-editor library writes its persistent
+		// per-node positions and pan/zoom state to. Empty disables persistence.
+		// The string is stored as a member because the library only takes a
+		// const char* and reads it across the editor's lifetime.
+		explicit FGraphEditorPanel(std::string SettingsFile = {});
 		~FGraphEditorPanel();
 
 		FGraphEditorPanel(const FGraphEditorPanel&) = delete;
@@ -25,6 +31,10 @@ namespace NodeSynth
 		// this frame (caller should recompile & publish to the audio thread).
 		bool Draw(FGraphModel& Model);
 
+		// Resets the editor's first-frame state so node positions in a freshly
+		// loaded model get pushed back into the imgui-node-editor canvas.
+		void OnModelReplaced() { bFirstFrame = true; }
+
 		// Renders parameter sliders for the currently selected node.
 		void DrawPropertyPanel(FGraphModel& Model);
 
@@ -37,5 +47,6 @@ namespace NodeSynth
 		ax::NodeEditor::EditorContext* Context = nullptr;
 		bool bFirstFrame = true;
 		FAudioCommandRing* CommandRing = nullptr;
+		std::string SettingsFilePath;
 	};
 }

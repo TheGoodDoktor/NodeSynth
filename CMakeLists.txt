@@ -84,6 +84,16 @@ FetchContent_Declare(rtmidi
 )
 FetchContent_MakeAvailable(rtmidi)
 
+# ---- nlohmann/json ----------------------------------------------------------
+# Header-only JSON for save/load. JSON_BuildTests off keeps configure quick.
+set(JSON_BuildTests OFF CACHE INTERNAL "")
+FetchContent_Declare(nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.3
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
 # ---- imgui-node-editor ------------------------------------------------------
 # Upstream ships a CMakeLists that expects ImGui via find_package — not how we
 # vendor it. Populate the sources only and build a target of our own.
@@ -131,7 +141,7 @@ file(GLOB_RECURSE NODESYNTH_SOURCES CONFIGURE_DEPENDS
 add_executable(nodesynth MACOSX_BUNDLE ${NODESYNTH_SOURCES})
 target_include_directories(nodesynth PRIVATE src)
 target_compile_definitions(nodesynth PRIVATE NOMINMAX)
-target_link_libraries(nodesynth PRIVATE imgui miniaudio imgui_node_editor_lib rtmidi)
+target_link_libraries(nodesynth PRIVATE imgui miniaudio imgui_node_editor_lib rtmidi nlohmann_json::nlohmann_json)
 
 # Mirror the on-disk src/ tree into Visual Studio filter folders (and Xcode groups).
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" PREFIX "src" FILES ${NODESYNTH_SOURCES})
@@ -171,10 +181,13 @@ if(NODESYNTH_BUILD_TESTS)
 
     add_executable(nodesynth_tests ${NODESYNTH_TEST_SOURCES}
         ${CMAKE_CURRENT_SOURCE_DIR}/src/graph/Graph.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/io/PatchSerializer.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/ui/NodeRegistry.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/MidiInput.cpp
     )
     target_include_directories(nodesynth_tests PRIVATE src)
     target_compile_definitions(nodesynth_tests PRIVATE NOMINMAX)
-    target_link_libraries(nodesynth_tests PRIVATE Catch2::Catch2WithMain)
+    target_link_libraries(nodesynth_tests PRIVATE Catch2::Catch2WithMain nlohmann_json::nlohmann_json rtmidi)
 
     enable_testing()
     include(CTest)

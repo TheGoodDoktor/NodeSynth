@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <memory>
 
 #include <imgui.h>
@@ -50,10 +51,13 @@ namespace NodeSynth
 		}
 	}
 
-	FGraphEditorPanel::FGraphEditorPanel()
+	FGraphEditorPanel::FGraphEditorPanel(std::string InSettingsFile)
+		: SettingsFilePath(std::move(InSettingsFile))
 	{
 		ed::Config EditorConfig;
-		EditorConfig.SettingsFile = nullptr; // don't persist to disk yet
+		EditorConfig.SettingsFile = SettingsFilePath.empty()
+			? nullptr
+			: SettingsFilePath.c_str();
 		Context = ed::CreateEditor(&EditorConfig);
 	}
 
@@ -222,6 +226,40 @@ namespace NodeSynth
 			ImGui::EndPopup();
 		}
 		ed::Resume();
+
+		// Hover tooltip on graph nodes. Looks up the same registry entry the
+		// palette uses so the wording stays in sync. Suspended out of the editor
+		// canvas so it renders in screen space; suppressed during drag-drop so
+		// it doesn't fight the drag preview.
+		if (const ed::NodeId HoveredNode = ed::GetHoveredNode())
+		{
+			if (FNodeRecord* Rec = Model.FindNode(HoveredNode.Get());
+				Rec != nullptr && ImGui::GetDragDropPayload() == nullptr)
+			{
+				const char* TypeName = Rec->Node->GetTypeName();
+				const FNodeRegistration* Match = nullptr;
+				for (const FNodeRegistration& Reg : GetNodeRegistry())
+				{
+					if (std::strcmp(Reg.TypeName, TypeName) == 0)
+					{
+						Match = &Reg;
+						break;
+					}
+				}
+				if (Match != nullptr && Match->Description != nullptr)
+				{
+					ed::Suspend();
+					ImGui::BeginTooltip();
+					ImGui::TextUnformatted(Match->MenuLabel);
+					ImGui::Separator();
+					ImGui::PushTextWrapPos(ImGui::GetFontSize() * 24.0f);
+					ImGui::TextUnformatted(Match->Description);
+					ImGui::PopTextWrapPos();
+					ImGui::EndTooltip();
+					ed::Resume();
+				}
+			}
+		}
 
 		ed::End();
 

@@ -1,5 +1,7 @@
 #include "ui/NodeRegistry.h"
 
+#include <cstring>
+
 #include "dsp/Add.h"
 #include "dsp/Adsr.h"
 #include "dsp/Constant.h"
@@ -127,5 +129,17 @@ namespace NodeSynth
 			},
 		};
 		return Registry;
+	}
+
+	std::shared_ptr<INode> MakeNodeByTypeName(const std::string& TypeName)
+	{
+		for (const FNodeRegistration& Reg : GetNodeRegistry())
+		{
+			if (TypeName == Reg.TypeName)
+			{
+				return Reg.Make();
+			}
+		}
+		return nullptr;
 	}
 }

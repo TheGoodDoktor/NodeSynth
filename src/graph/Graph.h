@@ -63,6 +63,13 @@ namespace NodeSynth
 	{
 	public:
 		FNodeId AddNode(std::shared_ptr<INode> Node, float X = 0.0f, float Y = 0.0f);
+
+		// Restores a node with a specific id. Used by patch load to preserve the
+		// ids stored in the file so links resolve correctly. Bumps NextNodeId so
+		// future AddNode calls don't collide. Returns 0 if the id is already in
+		// use, or if the node is a duplicate FOutput (singleton enforcement).
+		FNodeId AddNodeWithId(FNodeId Id, std::shared_ptr<INode> Node, float X = 0.0f, float Y = 0.0f);
+
 		void RemoveNode(FNodeId Id);
 
 		// Returns 0 on failure (missing node, port out of range, type mismatch, cycle).

@@ -7,10 +7,52 @@
 
 namespace NodeSynth
 {
+	namespace
+	{
+		bool IsOutputNode(const INode& Node)
+		{
+			return std::string(Node.GetTypeName()) == "Output";
+		}
+
+		bool HasOutputAlready(const std::unordered_map<FNodeId, FNodeRecord>& Nodes)
+		{
+			for (const auto& [Id, Rec] : Nodes)
+			{
+				if (Rec.Node && IsOutputNode(*Rec.Node))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+	}
+
 	FNodeId FGraphModel::AddNode(std::shared_ptr<INode> Node, float X, float Y)
 	{
+		if (Node && IsOutputNode(*Node) && HasOutputAlready(Nodes))
+		{
+			return 0;  // singleton FOutput enforcement
+		}
 		const FNodeId Id = NextNodeId++;
 		Nodes.emplace(Id, FNodeRecord{ Id, std::move(Node), X, Y });
+		return Id;
+	}
+
+	FNodeId FGraphModel::AddNodeWithId(FNodeId Id, std::shared_ptr<INode> Node, float X, float Y)
+	{
+		if (Id == 0 || Nodes.count(Id) > 0)
+		{
+			return 0;
+		}
+		if (Node && IsOutputNode(*Node) && HasOutputAlready(Nodes))
+		{
+			return 0;
+		}
+		Nodes.emplace(Id, FNodeRecord{ Id, std::move(Node), X, Y });
+		if (Id >= NextNodeId)
+		{
+			NextNodeId = Id + 1;
+		}
 		return Id;
 	}
 
