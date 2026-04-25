@@ -190,6 +190,24 @@ namespace NodeSynth
 			Draw->PathStroke(Col, 0, 1.5f);
 		}
 
+		void DrawLfoIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Slow sine — one cycle, lower amplitude than the audio Oscillator's
+			// 1.5-cycle icon to read as "modulation".
+			constexpr int32_t Segments = 24;
+			ImVec2 Pts[Segments + 1];
+			const float Mid = (Min.y + Max.y) * 0.5f;
+			const float Amp = (Max.y - Min.y) * 0.30f;
+			for (int32_t I = 0; I <= Segments; ++I)
+			{
+				const float T = static_cast<float>(I) / Segments;
+				const float X = Min.x + T * (Max.x - Min.x);
+				const float Y = Mid - Amp * std::sin(T * 2.0f * 3.14159265f);
+				Pts[I] = ImVec2(X, Y);
+			}
+			Draw->AddPolyline(Pts, Segments + 1, Col, 0, 1.5f);
+		}
+
 		void DrawAddIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
 		{
 			const float Inset = (Max.y - Min.y) * 0.20f;
@@ -325,6 +343,10 @@ namespace NodeSynth
 		else if (std::strcmp(TypeName, "SampleHold") == 0)
 		{
 			DrawSampleHoldIcon(Draw, Min, Max, ColMath);
+		}
+		else if (std::strcmp(TypeName, "LFO") == 0)
+		{
+			DrawLfoIcon(Draw, Min, Max, ColMath);
 		}
 		else
 		{

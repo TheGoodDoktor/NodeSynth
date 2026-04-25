@@ -5,6 +5,7 @@
 #include "dsp/Constant.h"
 #include "dsp/Gain.h"
 #include "dsp/GateButton.h"
+#include "dsp/Lfo.h"
 #include "dsp/MidiInput.h"
 #include "dsp/Multiply.h"
 #include "dsp/Oscillator.h"
@@ -115,6 +116,14 @@ namespace NodeSynth
 				"on the output until the next rising edge.\n"
 				"Classic with a noise source for random stepped modulation.",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FSampleHold>(); },
+			},
+			{
+				"LFO", "LFO",
+				"Low-frequency oscillator. Bipolar output [-Amount, +Amount].\n"
+				"Shapes: Sine, Triangle, Saw, Square. Rate 0.01..50 Hz.\n"
+				"Sync input resets phase on rising edge — leave disconnected for\n"
+				"free-running. Use a Scale node to remap to a unipolar range.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FLfo>(); },
 			},
 		};
 		return Registry;
