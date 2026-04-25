@@ -22,6 +22,11 @@ namespace NodeSynth
 		// Renders parameter sliders for the currently selected node.
 		void DrawPropertyPanel(FGraphModel& Model);
 
+		// Renders a persistent UI for any FVirtualKeyboard nodes in the graph,
+		// regardless of selection. Lets the user play notes while editing other
+		// nodes' parameters.
+		void DrawKeyboardPanel(FGraphModel& Model);
+
 	private:
 		ax::NodeEditor::EditorContext* Context = nullptr;
 		bool bFirstFrame = true;

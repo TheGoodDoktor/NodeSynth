@@ -167,9 +167,11 @@ namespace NodeSynth
 			DesiredHold[MouseSemi] = true;
 		}
 
-		const bool bFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
-			&& !ImGui::GetIO().WantTextInput;
-		if (bFocused)
+		// Keyboard input is application-global so the user can hold a note on the
+		// computer keyboard while dragging a slider in another window. We only
+		// suppress when a text field is actively capturing typed input.
+		const bool bAcceptKeys = !ImGui::GetIO().WantTextInput;
+		if (bAcceptKeys)
 		{
 			for (int32_t Semi = 0; Semi <= 12; ++Semi)
 			{
@@ -182,8 +184,10 @@ namespace NodeSynth
 		}
 
 		// -- Reconcile with actual held state -----------------------------------
-		// If focus is lost AND the mouse is up, force-release everything to avoid stuck notes.
-		if (!bFocused && !bMouseDown)
+		// If a text field grabs typing AND nothing is mouse-held, force-release
+		// everything so notes don't stick when the user starts typing into a
+		// slider's numeric edit. Mouse interaction always remains active.
+		if (!bAcceptKeys && !bMouseDown)
 		{
 			Kbd.ReleaseAll();
 		}

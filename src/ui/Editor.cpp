@@ -340,11 +340,27 @@ namespace NodeSynth
 				}
 			}
 		}
+	}
 
-		// Custom UI hooks for nodes that need more than the standard param widgets.
-		if (auto* Kbd = dynamic_cast<FVirtualKeyboard*>(Rec->Node.get()))
+	void FGraphEditorPanel::DrawKeyboardPanel(FGraphModel& Model)
+	{
+		bool bAnyDrawn = false;
+		for (const auto& [Id, Rec] : Model.GetNodes())
 		{
-			DrawVirtualKeyboardUI(*Kbd);
+			if (auto* Kbd = dynamic_cast<FVirtualKeyboard*>(Rec.Node.get()))
+			{
+				if (bAnyDrawn)
+				{
+					ImGui::Separator();
+				}
+				ImGui::Text("Virtual Keyboard (Id %llu)", static_cast<unsigned long long>(Id));
+				DrawVirtualKeyboardUI(*Kbd);
+				bAnyDrawn = true;
+			}
+		}
+		if (!bAnyDrawn)
+		{
+			ImGui::TextDisabled("Add a Virtual Keyboard node from the graph's right-click menu.");
 		}
 	}
 }

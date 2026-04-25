@@ -213,6 +213,12 @@ int main()
 		EditorPanel.DrawPropertyPanel(Model);
 		ImGui::End();
 
+		// Keyboard panel (always visible so notes can be played while editing
+		// other nodes' parameters).
+		ImGui::Begin("Keyboard");
+		EditorPanel.DrawKeyboardPanel(Model);
+		ImGui::End();
+
 		// Status
 		ImGui::Begin("Audio");
 		ImGui::Text("Sample rate: %.0f Hz", AudioState.SampleRate.load());
