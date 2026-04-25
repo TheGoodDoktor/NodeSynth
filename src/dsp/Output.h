@@ -22,6 +22,10 @@ namespace NodeSynth
 			return {};
 		}
 
+		// Singleton sink — the graph compiler already enforces "exactly one
+		// FOutput per graph", so cloning per voice is meaningless.
+		std::shared_ptr<INode> Clone() const override { return nullptr; }
+
 		void Process(const FProcessContext& Ctx) override
 		{
 			(void)Ctx;

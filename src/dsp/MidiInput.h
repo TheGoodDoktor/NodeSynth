@@ -63,6 +63,10 @@ namespace NodeSynth
 		float GetParamValue(uint32_t Index) const override;
 		void SetParamValue(uint32_t Index, float Value) override;
 
+		// Owns an RtMidiIn instance + a callback thread. Cloning would attempt
+		// to open the same MIDI device twice. Non-cloneable.
+		std::shared_ptr<INode> Clone() const override { return nullptr; }
+
 		void Prepare(double SampleRate) override;
 		void Process(const FProcessContext& Ctx) override;
 

@@ -112,6 +112,10 @@ namespace NodeSynth
 			}
 		}
 
+		// Owns transient UI state (held-note stack, mouse + key tracking)
+		// that doesn't make sense to duplicate per voice. Non-cloneable.
+		std::shared_ptr<INode> Clone() const override { return nullptr; }
+
 		void Prepare(double InSampleRate) override
 		{
 			ModSmoother.Prepare(InSampleRate);

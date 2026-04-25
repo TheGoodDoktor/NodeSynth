@@ -142,4 +142,33 @@ namespace NodeSynth
 		}
 		return nullptr;
 	}
+
+	// Default INode::Clone — instantiate a fresh node by type name and copy
+	// param values across by name. Used by the voice allocator's compile-time
+	// per-voice clone step. Non-cloneable nodes (MIDI input, virtual keyboard,
+	// output) override this to return nullptr so the compiler can reject a
+	// per-voice flag set on them.
+	std::shared_ptr<INode> INode::Clone() const
+	{
+		std::shared_ptr<INode> Cloned = MakeNodeByTypeName(GetTypeName());
+		if (!Cloned)
+		{
+			return nullptr;
+		}
+
+		const auto SourceInfos = GetParamInfos();
+		const auto TargetInfos = Cloned->GetParamInfos();
+		for (uint32_t I = 0; I < SourceInfos.size(); ++I)
+		{
+			for (uint32_t J = 0; J < TargetInfos.size(); ++J)
+			{
+				if (SourceInfos[I].Name == TargetInfos[J].Name)
+				{
+					Cloned->SetParamValue(J, GetParamValue(I));
+					break;
+				}
+			}
+		}
+		return Cloned;
+	}
 }

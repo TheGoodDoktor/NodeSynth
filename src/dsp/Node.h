@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -69,6 +70,15 @@ namespace NodeSynth
 
 		virtual void Prepare(double SampleRate) { (void)SampleRate; }
 		virtual void Process(const FProcessContext& Ctx) = 0;
+
+		// Returns a fresh node of the same type with current param values copied
+		// over. Transient DSP state (oscillator phase, ADSR stage, filter z's,
+		// smoother current, etc.) resets when Prepare() is called on the clone.
+		// Non-cloneable nodes (RtMidi-owning, UI-stateful, singleton sinks)
+		// override to return nullptr. The default implementation lives in
+		// ui/NodeRegistry.cpp because it needs the type-name → factory lookup;
+		// nodes that can use the default don't need to override.
+		virtual std::shared_ptr<INode> Clone() const;
 
 		// Buffer routing. Set by graph compilation (UI thread), read during Process (audio thread).
 		// Pointers remain valid for the lifetime of the compiled FAudioGraph snapshot that owns them.
