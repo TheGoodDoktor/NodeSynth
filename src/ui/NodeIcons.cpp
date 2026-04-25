@@ -18,6 +18,7 @@ namespace NodeSynth
 		constexpr ImU32 ColAmp = IM_COL32(220, 220, 220, 255);     // Gain, VCA
 		constexpr ImU32 ColInput = IM_COL32(200, 150, 240, 255);   // MIDI, VirtualKbd
 		constexpr ImU32 ColSink = IM_COL32(255, 130, 130, 255);    // Output
+		constexpr ImU32 ColMath = IM_COL32(255, 220, 130, 255);    // Add/Mul/Scale/Const/S&H
 
 		void DrawSineIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
 		{
@@ -189,6 +190,70 @@ namespace NodeSynth
 			Draw->PathStroke(Col, 0, 1.5f);
 		}
 
+		void DrawAddIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			const float Inset = (Max.y - Min.y) * 0.20f;
+			const float Cx = (Min.x + Max.x) * 0.5f;
+			const float Cy = (Min.y + Max.y) * 0.5f;
+			Draw->AddLine(ImVec2(Min.x + Inset, Cy), ImVec2(Max.x - Inset, Cy), Col, 1.8f);
+			Draw->AddLine(ImVec2(Cx, Min.y + Inset), ImVec2(Cx, Max.y - Inset), Col, 1.8f);
+		}
+
+		void DrawMultiplyIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			const float Inset = (Max.y - Min.y) * 0.22f;
+			Draw->AddLine(ImVec2(Min.x + Inset, Min.y + Inset),
+				ImVec2(Max.x - Inset, Max.y - Inset), Col, 1.8f);
+			Draw->AddLine(ImVec2(Max.x - Inset, Min.y + Inset),
+				ImVec2(Min.x + Inset, Max.y - Inset), Col, 1.8f);
+		}
+
+		void DrawScaleIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Two diagonal lines with different slopes — the visual metaphor for
+			// "remap a range to a different range."
+			const float Inset = (Max.y - Min.y) * 0.18f;
+			const float L = Min.x + Inset;
+			const float R = Max.x - Inset;
+			const float T = Min.y + Inset;
+			const float B = Max.y - Inset;
+			const float Mid = (T + B) * 0.5f;
+			Draw->AddLine(ImVec2(L, B), ImVec2(R, T), Col, 1.5f);
+			Draw->AddLine(ImVec2(L, B), ImVec2(R, Mid), Col, 1.5f);
+		}
+
+		void DrawConstantIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Horizontal line at the centre — DC value.
+			const float Inset = (Max.y - Min.y) * 0.18f;
+			const float Cy = (Min.y + Max.y) * 0.5f;
+			Draw->AddLine(ImVec2(Min.x + Inset, Cy), ImVec2(Max.x - Inset, Cy), Col, 2.0f);
+		}
+
+		void DrawSampleHoldIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Stair-step with three risers.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.15f;
+			const float R = Max.x - W * 0.10f;
+			const float T = Min.y + H * 0.20f;
+			const float B = Max.y - H * 0.20f;
+			const float StepW = (R - L) / 3.0f;
+			const float StepH = (B - T) / 3.0f;
+			const ImVec2 Pts[7] =
+			{
+				ImVec2(L,                B),
+				ImVec2(L,                B - StepH),
+				ImVec2(L + StepW,        B - StepH),
+				ImVec2(L + StepW,        B - 2.0f * StepH),
+				ImVec2(L + 2.0f * StepW, B - 2.0f * StepH),
+				ImVec2(L + 2.0f * StepW, T),
+				ImVec2(R,                T),
+			};
+			Draw->AddPolyline(Pts, 7, Col, 0, 1.5f);
+		}
+
 		void DrawDefaultIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
 		{
 			// Generic node: a small square outline.
@@ -240,6 +305,26 @@ namespace NodeSynth
 		else if (std::strcmp(TypeName, "Output") == 0)
 		{
 			DrawSpeakerIcon(Draw, Min, Max, ColSink);
+		}
+		else if (std::strcmp(TypeName, "Add") == 0)
+		{
+			DrawAddIcon(Draw, Min, Max, ColMath);
+		}
+		else if (std::strcmp(TypeName, "Multiply") == 0)
+		{
+			DrawMultiplyIcon(Draw, Min, Max, ColMath);
+		}
+		else if (std::strcmp(TypeName, "Scale") == 0)
+		{
+			DrawScaleIcon(Draw, Min, Max, ColMath);
+		}
+		else if (std::strcmp(TypeName, "Constant") == 0)
+		{
+			DrawConstantIcon(Draw, Min, Max, ColMath);
+		}
+		else if (std::strcmp(TypeName, "SampleHold") == 0)
+		{
+			DrawSampleHoldIcon(Draw, Min, Max, ColMath);
 		}
 		else
 		{

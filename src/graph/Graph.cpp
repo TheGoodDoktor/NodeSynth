@@ -184,6 +184,37 @@ namespace NodeSynth
 
 		Graph->OrderedNodes = std::move(Order);
 		Graph->OutputNode = OutputRec->Node;
+
+		// Build the id-to-node lookup so the audio-thread command drain can find
+		// nodes by FNodeId without scanning OrderedNodes.
+		Graph->NodeById.reserve(Graph->OrderedNodes.size());
+		for (const auto& [Id, Rec] : Nodes)
+		{
+			if (Visited.count(Id) > 0)
+			{
+				Graph->NodeById.emplace(Id, Rec.Node.get());
+			}
+		}
+
 		return Graph;
+	}
+
+	void FAudioGraph::DrainCommands(FAudioCommandRing& Ring)
+	{
+		FAudioCommand Cmd;
+		while (Ring.Pop(Cmd))
+		{
+			auto It = NodeById.find(Cmd.NodeId);
+			if (It == NodeById.end())
+			{
+				continue;  // node not in this snapshot — UI thread already wrote the atomic
+			}
+			switch (Cmd.Type)
+			{
+				case EAudioCommand::SetParam:
+					It->second->SetParamValue(Cmd.ParamIndex, Cmd.Value);
+					break;
+			}
+		}
 	}
 }

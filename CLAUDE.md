@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 NodeSynth is a standalone C++20 node-based software synthesizer with a Dear ImGui front-end. The long-form roadmap lives in `docs/PLAN.md`.
 
-**Current status (2026-04-24):** Phases 0, 1, and 2 complete — the subtractive mono synth target patch (`MIDI → Osc → SVF → VCA → Output`, with ADSR driving VCA gain and MIDI frequency driving the oscillator) is buildable in the UI. Node set: Oscillator (Sine/Saw/Square/Triangle/Noise with PolyBLEP), Gain, VCA, ADSR, SVF (TPT/ZDF form), Gate (manual toggle), MIDI Input, Output. Catch2 test harness (24 tests, 10k+ assertions) covers graph, smoother, all DSP nodes, and the SPSC MIDI ring under concurrent producer/consumer. Phase 3 (polyphony, LFO, math/utility nodes, patch save/load) is next. One Phase 1 bullet from the plan (SPSC command queue for UI→Audio graph edits) was deferred — see the deferred-work note below.
+**Current status (2026-04-25):** Phases 0, 1, and 2 complete plus the deferred SPSC command queue (UI → Audio) for `SetParam` is in. Subtractive mono synth target patch (`MIDI → Osc → SVF → VCA → Output`, with ADSR driving VCA gain and MIDI frequency driving the oscillator) is buildable in the UI. Node set: Oscillator (Sine/Saw/Square/Triangle/Noise with PolyBLEP), Gain, VCA, ADSR, SVF (TPT/ZDF form), Gate (manual toggle), MIDI Input, Virtual Keyboard, Output. Front-end has a node palette (drag-drop), node icons, ADSR envelope visualisation, and a persistent on-screen keyboard panel. Catch2 test harness (39 tests, 20k+ assertions) covers graph, smoother, all DSP nodes, both SPSC rings (MIDI + audio commands) under concurrent producer/consumer, and command-queue dispatch through the graph. Phase 3 (polyphony, LFO, math/utility nodes, patch save/load) is next.
 
 ## Build & run
 
@@ -38,7 +38,7 @@ The core concurrency design is the key thing to understand before touching graph
 - **UI thread** owns `FGraphModel` (`src/graph/Graph.h`). All edits — add/remove nodes, add/remove links — mutate this model. It is never touched from the audio thread.
 - **Audio thread** (miniaudio callback in `src/main.cpp`) reads a `std::shared_ptr<FAudioGraph>` held in `FAudioState::Graph` (an `std::atomic<std::shared_ptr<…>>`). The callback `load()`s the current snapshot and walks its pre-sorted `OrderedNodes`.
 - **Publishing edits:** whenever `FGraphEditorPanel::Draw()` reports `bGraphChanged`, `main.cpp` calls `Model.Compile(SampleRate)` on the UI thread and `store()`s the resulting `FAudioGraph` into `AudioState.Graph`. The old snapshot's `shared_ptr` gets dropped on whichever thread releases it last — this is why node destructors must be safe to run on either thread (see the shutdown sequence in `main.cpp` which deliberately nulls the graph before ImGui teardown).
-- **No command queue yet.** `docs/PLAN.md` describes an SPSC command queue for UI→Audio; the current implementation side-steps it by recompiling the whole graph on every edit and atomically swapping. Parameter changes flow through `std::atomic<float>` members on each node (see `FOscillator::Frequency`), not through the graph swap. **This is the one Phase 1 plan bullet deferred to later — see "Deferred from Phase 1" below.**
+- **Command queue (UI → Audio).** A lock-free SPSC ring (`FAudioCommandRing` in `src/graph/AudioCommand.h`, 512-slot) carries `SetParam` commands from UI → audio. The audio callback drains it via `FAudioGraph::DrainCommands` at the start of each block, dispatching to nodes via an `unordered_map<FNodeId, INode*>` populated by `Compile`. UI-side widgets do a *dual write*: they call `Node->SetParamValue` directly (so sliders track immediately and `GetParamValue` stays consistent) AND push a `SetParam` command (so audio-thread state mutates in queue order alongside other commands — important for save/load replay). Structural commands (`AddNode` / `RemoveNode` / `Connect` / `Disconnect`) are **not** in the queue — those still take the snapshot-swap path. RT-safe structural mutation is a much larger engineering lift and there's no Phase 3 deliverable that needs it. `NoteOn` / `NoteOff` will land alongside polyphony.
 
 ### Real-time rules for the audio callback
 
@@ -95,13 +95,7 @@ Phase 2 added `src/midi/` for the SPSC `FMidiRing` and `src/dsp/MidiInput.{h,cpp
 
 ## Deferred from Phase 1
 
-**SPSC command queue (UI → Audio).** The plan specifies a lock-free command queue carrying `AddNode` / `RemoveNode` / `Connect` / `Disconnect` / `SetParam` records. It's not built. Today, any structural edit recompiles the whole `FAudioGraph` on the UI thread and atomic-swaps the `shared_ptr` into `FAudioState::Graph`; parameter changes use per-node `std::atomic<float>`.
-
-This works for Phase 1's scale but should land before either of:
-- **Phase 3 polyphony**, where voice allocation needs fine-grained messages rather than whole-graph swaps.
-- **Phase 3 patch save/load**, where atomic `SetParam` replay during deserialization will want queue semantics.
-
-If you're adding features in between (Phase 2 nodes: saw/square/triangle/noise oscillators, ADSR, SVF filter, VCA, MIDI input), the current swap-on-edit scheme is still adequate — don't pre-build the queue speculatively, but don't add new shortcuts that would make the queue harder to introduce later either.
+**Structural commands through the queue.** The original plan called for `AddNode` / `RemoveNode` / `Connect` / `Disconnect` to flow through the SPSC queue too. Only `SetParam` does today; structural edits still recompile the whole `FAudioGraph` and atomic-swap the snapshot. RT-safe structural mutation needs allocation-free node construction, deferred destruction back to the UI thread, and incremental topo recomputation — substantial engineering, and no Phase 3 deliverable depends on it. Don't add new shortcuts that would make this harder to introduce later (e.g. don't bake "the audio thread can't see new nodes mid-block" assumptions outside `FAudioGraph` itself).
 
 Minor Phase 1 polish also outstanding:
 - `FOutput` is not enforced as "exactly one per graph" — extras are silently ignored by `Compile`.

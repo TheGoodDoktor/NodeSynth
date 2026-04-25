@@ -68,22 +68,28 @@ namespace NodeSynth
 		}
 	}
 
-	void DrawVirtualKeyboardUI(FVirtualKeyboard& Kbd)
+	void DrawVirtualKeyboardUI(FVirtualKeyboard& Kbd, const FCommandSink& Sink)
 	{
+		auto WriteParam = [&](uint32_t Index, float Value)
+		{
+			Kbd.SetParamValue(Index, Value);
+			Sink.SetParam(Index, Value);
+		};
+
 		ImGui::Separator();
 
 		// -- Octave row ---------------------------------------------------------
 		int32_t Octave = static_cast<int32_t>(std::lround(Kbd.GetParamValue(FVirtualKeyboard::Param_Octave)));
 		if (ImGui::Button("Oct -"))
 		{
-			Kbd.SetParamValue(FVirtualKeyboard::Param_Octave, static_cast<float>(Octave - 1));
+			WriteParam(FVirtualKeyboard::Param_Octave, static_cast<float>(Octave - 1));
 		}
 		ImGui::SameLine();
 		ImGui::Text("C%d", Octave);
 		ImGui::SameLine();
 		if (ImGui::Button("Oct +"))
 		{
-			Kbd.SetParamValue(FVirtualKeyboard::Param_Octave, static_cast<float>(Octave + 1));
+			WriteParam(FVirtualKeyboard::Param_Octave, static_cast<float>(Octave + 1));
 		}
 
 		// Refresh in case the buttons changed it (also clamps).
@@ -93,7 +99,7 @@ namespace NodeSynth
 		float Mod = Kbd.GetParamValue(FVirtualKeyboard::Param_ModWheel);
 		if (ImGui::SliderFloat("Mod", &Mod, 0.0f, 1.0f, "%.2f"))
 		{
-			Kbd.SetParamValue(FVirtualKeyboard::Param_ModWheel, Mod);
+			WriteParam(FVirtualKeyboard::Param_ModWheel, Mod);
 		}
 
 		// -- Piano keyboard -----------------------------------------------------

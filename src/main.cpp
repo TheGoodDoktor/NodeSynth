@@ -31,6 +31,7 @@ namespace
 	{
 		std::atomic<std::shared_ptr<FAudioGraph>> Graph{ nullptr };
 		std::atomic<double> SampleRate{ 48000.0 };
+		FAudioCommandRing Commands;
 	};
 
 	void AudioCallback(ma_device* Device, void* Output, const void* /*Input*/, ma_uint32 FrameCount)
@@ -55,6 +56,7 @@ namespace
 			const float* OutputBuf = nullptr;
 			if (Graph && Graph->OutputNode)
 			{
+				Graph->DrainCommands(State->Commands);
 				Graph->Process(Ctx);
 				OutputBuf = Graph->OutputNode->GetInputBuffer(0);
 			}
@@ -149,6 +151,7 @@ int main()
 
 	FAudioState AudioState;
 	AudioState.Graph.store(Model.Compile(48000.0));
+	EditorPanel.SetCommandRing(&AudioState.Commands);
 
 	// ---- miniaudio ----------------------------------------------------------
 	ma_device_config Config = ma_device_config_init(ma_device_type_playback);

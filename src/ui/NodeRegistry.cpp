@@ -1,11 +1,16 @@
 #include "ui/NodeRegistry.h"
 
+#include "dsp/Add.h"
 #include "dsp/Adsr.h"
+#include "dsp/Constant.h"
 #include "dsp/Gain.h"
 #include "dsp/GateButton.h"
 #include "dsp/MidiInput.h"
+#include "dsp/Multiply.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
+#include "dsp/SampleHold.h"
+#include "dsp/Scale.h"
 #include "dsp/Svf.h"
 #include "dsp/Vca.h"
 #include "dsp/VirtualKeyboard.h"
@@ -75,6 +80,41 @@ namespace NodeSynth
 				"The graph compiler treats this as the root and only walks nodes\n"
 				"reachable from it.",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FOutput>(); },
+			},
+			{
+				"Add", "Add",
+				"Adds two Control signals: Out = A + B.\n"
+				"Disconnected inputs read as 0, so the node passes through whatever\n"
+				"is connected.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FAdd>(); },
+			},
+			{
+				"Multiply", "Multiply",
+				"Multiplies two Control signals: Out = A * B.\n"
+				"Disconnected inputs read as 1 (multiplication identity), so the node\n"
+				"passes through whatever is connected.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FMultiply>(); },
+			},
+			{
+				"Scale", "Scale",
+				"Linear range remapper. Maps [InMin, InMax] onto [OutMin, OutMax].\n"
+				"Defaults remap a bipolar [-1, 1] LFO to unipolar [0, 1].\n"
+				"Values outside InMin..InMax are extrapolated, not clamped.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FScale>(); },
+			},
+			{
+				"Constant", "Constant",
+				"Constant Control source. Outputs the Value param continuously.\n"
+				"Useful for fixed offsets, bias points, or as a knob you can route\n"
+				"into any Control input.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FConstant>(); },
+			},
+			{
+				"SampleHold", "Sample & Hold",
+				"Latches the In value on each rising edge of Trigger and holds it\n"
+				"on the output until the next rising edge.\n"
+				"Classic with a noise source for random stepped modulation.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FSampleHold>(); },
 			},
 		};
 		return Registry;

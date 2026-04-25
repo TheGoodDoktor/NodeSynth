@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "dsp/Node.h"
+#include "graph/AudioCommand.h"
 
 namespace NodeSynth
 {
@@ -33,6 +34,18 @@ namespace NodeSynth
 	public:
 		std::vector<std::shared_ptr<INode>> OrderedNodes;  // topological order (producers first)
 		std::shared_ptr<INode> OutputNode;                 // null until the user adds one
+
+		// Id → node lookup populated at compile time. Used by DrainCommands to
+		// route incoming SetParam (and future) commands to the right node.
+		// Held by raw INode* — the shared_ptrs in OrderedNodes keep the nodes
+		// alive for the lifetime of this snapshot.
+		std::unordered_map<FNodeId, INode*> NodeById;
+
+		// Drains all pending commands from the ring and dispatches them. RT-safe:
+		// the ring is lock-free and SetParamValue stores into atomics. Commands
+		// targeting nodes not in this snapshot are silently dropped (the
+		// equivalent UI-thread atomic write keeps the model consistent).
+		void DrainCommands(FAudioCommandRing& Ring);
 
 		void Process(const FProcessContext& Ctx)
 		{

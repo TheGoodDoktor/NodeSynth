@@ -287,6 +287,17 @@ namespace NodeSynth
 			return;
 		}
 
+		// Param edits write the atomic directly (so the slider tracks immediately
+		// and GetParamValue stays consistent for UI rendering) AND push a queued
+		// SetParam so the audio thread sees the same change in the same order
+		// as everything else flowing through the ring.
+		const FCommandSink Sink{ CommandRing, Rec->Id };
+		auto WriteParam = [&](uint32_t Index, float Value)
+		{
+			Rec->Node->SetParamValue(Index, Value);
+			Sink.SetParam(Index, Value);
+		};
+
 		for (uint32_t I = 0; I < Infos.size(); ++I)
 		{
 			const FParamInfo& Info = Infos[I];
@@ -313,7 +324,7 @@ namespace NodeSynth
 							const bool bSelected = (C == Index);
 							if (ImGui::Selectable(Info.Choices[C].c_str(), bSelected))
 							{
-								Rec->Node->SetParamValue(I, static_cast<float>(C));
+								WriteParam(I, static_cast<float>(C));
 							}
 							if (bSelected)
 							{
@@ -329,7 +340,7 @@ namespace NodeSynth
 					bool bChecked = Value > 0.5f;
 					if (ImGui::Checkbox(Info.Name.c_str(), &bChecked))
 					{
-						Rec->Node->SetParamValue(I, bChecked ? 1.0f : 0.0f);
+						WriteParam(I, bChecked ? 1.0f : 0.0f);
 					}
 					break;
 				}
@@ -339,7 +350,7 @@ namespace NodeSynth
 					const ImGuiSliderFlags Flags = Info.bLogarithmic ? ImGuiSliderFlags_Logarithmic : 0;
 					if (ImGui::SliderFloat(Info.Name.c_str(), &Value, Info.MinValue, Info.MaxValue, "%.3f", Flags))
 					{
-						Rec->Node->SetParamValue(I, Value);
+						WriteParam(I, Value);
 					}
 					break;
 				}
@@ -365,7 +376,7 @@ namespace NodeSynth
 					ImGui::Separator();
 				}
 				ImGui::Text("Virtual Keyboard (Id %llu)", static_cast<unsigned long long>(Id));
-				DrawVirtualKeyboardUI(*Kbd);
+				DrawVirtualKeyboardUI(*Kbd, FCommandSink{ CommandRing, Id });
 				bAnyDrawn = true;
 			}
 		}

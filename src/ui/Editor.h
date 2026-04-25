@@ -1,5 +1,6 @@
 #pragma once
 
+#include "graph/AudioCommand.h"
 #include "graph/Graph.h"
 
 namespace ax::NodeEditor { struct EditorContext; }
@@ -14,6 +15,11 @@ namespace NodeSynth
 
 		FGraphEditorPanel(const FGraphEditorPanel&) = delete;
 		FGraphEditorPanel& operator=(const FGraphEditorPanel&) = delete;
+
+		// Audio-thread command ring, used by parameter widgets to push SetParam
+		// commands. Null is allowed (acts as a no-op); set it once at startup
+		// from main.cpp once the audio state exists.
+		void SetCommandRing(FAudioCommandRing* Ring) { CommandRing = Ring; }
 
 		// Renders the node editor. Returns true if the graph topology changed
 		// this frame (caller should recompile & publish to the audio thread).
@@ -30,5 +36,6 @@ namespace NodeSynth
 	private:
 		ax::NodeEditor::EditorContext* Context = nullptr;
 		bool bFirstFrame = true;
+		FAudioCommandRing* CommandRing = nullptr;
 	};
 }
