@@ -87,6 +87,13 @@ namespace NodeSynth
 			ed::BeginNode(ed::NodeId(Id));
 			IconBeforeText(Node.GetTypeName(), ImGui::GetTextLineHeight());
 			ImGui::TextUnformatted(Node.GetTypeName());
+			if (Rec.bPerVoice)
+			{
+				// Per-voice badge: small bracketed label after the type name so
+				// it's obvious at a glance which nodes will be cloned per voice.
+				ImGui::SameLine();
+				ImGui::TextColored(ImVec4(0.55f, 0.85f, 1.0f, 1.0f), "[poly]");
+			}
 			ImGui::Dummy(ImVec2(120.0f, 2.0f));
 
 			const size_t Rows = std::max(InPorts.size(), OutPorts.size());
@@ -199,6 +206,40 @@ namespace NodeSynth
 		if (ed::ShowBackgroundContextMenu())
 		{
 			ImGui::OpenPopup("CreateNodeMenu");
+		}
+		ed::Resume();
+
+		// Right-click on a node — per-voice toggle and friends.
+		ed::NodeId NodeContextId;
+		ed::Suspend();
+		if (ed::ShowNodeContextMenu(&NodeContextId))
+		{
+			NodeContextTarget = NodeContextId.Get();
+			ImGui::OpenPopup("NodeContextMenu");
+		}
+		ed::Resume();
+
+		ed::Suspend();
+		if (ImGui::BeginPopup("NodeContextMenu"))
+		{
+			if (FNodeRecord* Rec = Model.FindNode(NodeContextTarget))
+			{
+				const bool bCloneable =
+					Rec->Node && Rec->Node->Clone() != nullptr;
+				bool bPoly = Rec->bPerVoice;
+				if (ImGui::MenuItem("Per-voice", nullptr, &bPoly, bCloneable))
+				{
+					if (Model.SetNodePerVoice(NodeContextTarget, bPoly))
+					{
+						bChanged = true;
+					}
+				}
+				if (!bCloneable)
+				{
+					ImGui::TextDisabled("(this node type can't be cloned)");
+				}
+			}
+			ImGui::EndPopup();
 		}
 		ed::Resume();
 

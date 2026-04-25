@@ -48,5 +48,8 @@ namespace NodeSynth
 		bool bFirstFrame = true;
 		FAudioCommandRing* CommandRing = nullptr;
 		std::string SettingsFilePath;
+		// Set when the user right-clicks a node; read by the popup body the
+		// next frame to know which node the menu applies to.
+		FNodeId NodeContextTarget = 0;
 	};
 }

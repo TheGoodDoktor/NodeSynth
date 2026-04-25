@@ -15,6 +15,10 @@ namespace NodeSynth
 		std::shared_ptr<INode> Node;
 		float PositionX = 0.0f;
 		float PositionY = 0.0f;
+		// When true, the graph compiler clones this node NumVoices times
+		// during Compile() and wires the clones in parallel. Only meaningful
+		// for nodes whose Clone() returns non-null. Set via FGraphModel::SetNodePerVoice.
+		bool bPerVoice = false;
 	};
 
 	struct FLink
@@ -84,6 +88,11 @@ namespace NodeSynth
 		const std::unordered_map<FNodeId, FNodeRecord>& GetNodes() const { return Nodes; }
 		const std::vector<FLink>& GetLinks() const { return Links; }
 		FNodeRecord* FindNode(FNodeId Id);
+
+		// Toggles the per-voice flag on a node. Returns false (and leaves the
+		// flag untouched) if the node id is unknown or the node's Clone() is
+		// nullptr (non-cloneable types like MIDI input or virtual keyboard).
+		bool SetNodePerVoice(FNodeId Id, bool bPerVoice);
 
 	private:
 		std::unordered_map<FNodeId, FNodeRecord> Nodes;

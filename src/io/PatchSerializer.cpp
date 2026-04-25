@@ -21,6 +21,11 @@ namespace NodeSynth
 			N["type"] = Rec.Node->GetTypeName();
 			N["x"] = Rec.PositionX;
 			N["y"] = Rec.PositionY;
+			// Only emit the flag when set so older files stay diff-clean.
+			if (Rec.bPerVoice)
+			{
+				N["per_voice"] = true;
+			}
 
 			json Params = json::object();
 			const auto Infos = Rec.Node->GetParamInfos();
@@ -156,6 +161,18 @@ namespace NodeSynth
 					std::fprintf(stderr, "LoadPatch: duplicate id or rejected node id %llu (type '%s')\n",
 						static_cast<unsigned long long>(Id), TypeName.c_str());
 					continue;
+				}
+
+				// Per-voice flag (defaults to false on missing key for back-compat
+				// with v1 files written before this field existed).
+				if (N.value("per_voice", false))
+				{
+					if (!Result.Model.SetNodePerVoice(Id, true))
+					{
+						std::fprintf(stderr,
+							"LoadPatch: per_voice rejected for id %llu (type '%s' is not cloneable)\n",
+							static_cast<unsigned long long>(Id), TypeName.c_str());
+					}
 				}
 
 				// Params — keyed by name, mapped to the node's current param index.

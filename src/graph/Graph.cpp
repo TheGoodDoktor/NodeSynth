@@ -70,6 +70,23 @@ namespace NodeSynth
 		return (It != Nodes.end()) ? &It->second : nullptr;
 	}
 
+	bool FGraphModel::SetNodePerVoice(FNodeId Id, bool bPerVoice)
+	{
+		auto It = Nodes.find(Id);
+		if (It == Nodes.end())
+		{
+			return false;
+		}
+		// Cloneability test: a node whose Clone() returns nullptr can't be
+		// duplicated per voice (RtMidi handles, UI state, singleton sinks).
+		if (bPerVoice && It->second.Node && It->second.Node->Clone() == nullptr)
+		{
+			return false;
+		}
+		It->second.bPerVoice = bPerVoice;
+		return true;
+	}
+
 	namespace
 	{
 		bool WouldCreateCycle(const std::vector<FLink>& Links, FNodeId FromNode, FNodeId ToNode)
