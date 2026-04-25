@@ -44,10 +44,14 @@ namespace NodeSynth
 		{
 			return
 			{
-				{ "Attack",  0.1f,   5000.0f, 5.0f,    true,  EParamKind::Float, {} },
-				{ "Decay",   1.0f,   5000.0f, 200.0f,  true,  EParamKind::Float, {} },
-				{ "Sustain", 0.0f,   1.0f,    0.7f,    false, EParamKind::Float, {} },
-				{ "Release", 1.0f,   8000.0f, 400.0f,  true,  EParamKind::Float, {} },
+				{ "Attack",  0.1f,   5000.0f, 5.0f,    true,  EParamKind::Float, {},
+					"Time in milliseconds for the envelope to rise from 0 to peak after the gate opens." },
+				{ "Decay",   1.0f,   5000.0f, 200.0f,  true,  EParamKind::Float, {},
+					"Time in milliseconds to fall from peak to the sustain level." },
+				{ "Sustain", 0.0f,   1.0f,    0.7f,    false, EParamKind::Float, {},
+					"Level held while the gate stays open (0..1)." },
+				{ "Release", 1.0f,   8000.0f, 400.0f,  true,  EParamKind::Float, {},
+					"Time in milliseconds to fall from the current level to 0 after the gate closes." },
 			};
 		}
 

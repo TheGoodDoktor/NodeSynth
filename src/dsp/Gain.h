@@ -30,7 +30,8 @@ namespace NodeSynth
 
 		std::vector<FParamInfo> GetParamInfos() const override
 		{
-			return { { "Gain", 0.0f, 2.0f, 1.0f, false, EParamKind::Float, {} } };
+			return { { "Gain", 0.0f, 2.0f, 1.0f, false, EParamKind::Float, {},
+				"Linear gain multiplier applied to the audio input. Smoothed." } };
 		}
 
 		float GetParamValue(uint32_t Index) const override

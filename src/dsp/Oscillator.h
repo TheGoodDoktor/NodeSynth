@@ -71,9 +71,12 @@ namespace NodeSynth
 			return
 			{
 				{ "Shape", 0.0f, static_cast<float>(EOscShape::COUNT) - 1, 0.0f, false, EParamKind::Choice,
-					{ "Sine", "Saw", "Square", "Triangle", "Noise" } },
-				{ "Frequency", 20.0f, 20000.0f, 440.0f, true,  EParamKind::Float, {} },
-				{ "Amplitude", 0.0f,  1.0f,     0.3f,  false, EParamKind::Float, {} },
+					{ "Sine", "Saw", "Square", "Triangle", "Noise" },
+					"Waveform. Saw / Square / Triangle use PolyBLEP to suppress aliasing; Noise is white per-sample." },
+				{ "Frequency", 20.0f, 20000.0f, 440.0f, true,  EParamKind::Float, {},
+					"Pitch in Hz. The Freq Control input overrides this when connected." },
+				{ "Amplitude", 0.0f,  1.0f,     0.3f,  false, EParamKind::Float, {},
+					"Output level (0..1). The Amp Control input overrides this when connected. Smoothed." },
 			};
 		}
 

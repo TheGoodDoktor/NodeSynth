@@ -38,10 +38,14 @@ namespace NodeSynth
 		{
 			return
 			{
-				{ "InMin",  -10.0f, 10.0f, -1.0f, false, EParamKind::Float, {} },
-				{ "InMax",  -10.0f, 10.0f,  1.0f, false, EParamKind::Float, {} },
-				{ "OutMin", -10.0f, 10.0f,  0.0f, false, EParamKind::Float, {} },
-				{ "OutMax", -10.0f, 10.0f,  1.0f, false, EParamKind::Float, {} },
+				{ "InMin",  -10.0f, 10.0f, -1.0f, false, EParamKind::Float, {},
+					"Lower bound of the input range." },
+				{ "InMax",  -10.0f, 10.0f,  1.0f, false, EParamKind::Float, {},
+					"Upper bound of the input range." },
+				{ "OutMin", -10.0f, 10.0f,  0.0f, false, EParamKind::Float, {},
+					"Lower bound of the output range." },
+				{ "OutMax", -10.0f, 10.0f,  1.0f, false, EParamKind::Float, {},
+					"Upper bound of the output range." },
 			};
 		}
 

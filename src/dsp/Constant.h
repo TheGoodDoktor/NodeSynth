@@ -32,7 +32,8 @@ namespace NodeSynth
 
 		std::vector<FParamInfo> GetParamInfos() const override
 		{
-			return { { "Value", -10.0f, 10.0f, 0.0f, false, EParamKind::Float, {} } };
+			return { { "Value", -10.0f, 10.0f, 0.0f, false, EParamKind::Float, {},
+				"Constant value emitted continuously on the output." } };
 		}
 
 		float GetParamValue(uint32_t Index) const override

@@ -63,8 +63,10 @@ namespace NodeSynth
 		{
 			return
 			{
-				{ "Cutoff",    20.0f, 20000.0f, 1000.0f, true,  EParamKind::Float, {} },
-				{ "Resonance", 0.0f,  1.0f,     0.2f,   false, EParamKind::Float, {} },
+				{ "Cutoff",    20.0f, 20000.0f, 1000.0f, true,  EParamKind::Float, {},
+					"Filter cutoff frequency in Hz. Clamped to a safe range every sample." },
+				{ "Resonance", 0.0f,  1.0f,     0.2f,   false, EParamKind::Float, {},
+					"Resonance / Q. 1.0 self-oscillates cleanly." },
 			};
 		}
 

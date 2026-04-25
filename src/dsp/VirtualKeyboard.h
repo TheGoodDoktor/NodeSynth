@@ -60,9 +60,12 @@ namespace NodeSynth
 		{
 			return
 			{
-				{ "Octave",   0.0f, 8.0f, 4.0f, false, EParamKind::Float, {} },
-				{ "Velocity", 0.0f, 1.0f, 0.8f, false, EParamKind::Float, {} },
-				{ "Mod",      0.0f, 1.0f, 0.0f, false, EParamKind::Float, {} },
+				{ "Octave",   0.0f, 8.0f, 4.0f, false, EParamKind::Float, {},
+					"Octave of the bottom (leftmost) key. Bottom C maps to MIDI 12 * (Octave + 1)." },
+				{ "Velocity", 0.0f, 1.0f, 0.8f, false, EParamKind::Float, {},
+					"Fixed velocity used for clicked / typed notes (0..1)." },
+				{ "Mod",      0.0f, 1.0f, 0.0f, false, EParamKind::Float, {},
+					"Modulation-wheel output value (0..1). Smoothed." },
 			};
 		}
 

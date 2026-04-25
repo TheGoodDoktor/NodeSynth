@@ -316,6 +316,25 @@ namespace NodeSynth
 
 		ImGui::Text("%s", Rec->Node->GetTypeName());
 		ImGui::TextDisabled("Id %llu", static_cast<unsigned long long>(Rec->Id));
+
+		// Pull the node's description from the same registry entry the palette
+		// and graph hover tooltip use so the wording stays in sync.
+		{
+			const char* TypeName = Rec->Node->GetTypeName();
+			for (const FNodeRegistration& Reg : GetNodeRegistry())
+			{
+				if (std::strcmp(Reg.TypeName, TypeName) == 0)
+				{
+					if (Reg.Description != nullptr && Reg.Description[0] != '\0')
+					{
+						ImGui::PushTextWrapPos(0.0f);
+						ImGui::TextDisabled("%s", Reg.Description);
+						ImGui::PopTextWrapPos();
+					}
+					break;
+				}
+			}
+		}
 		ImGui::Separator();
 
 		const auto Infos = Rec->Node->GetParamInfos();
@@ -355,7 +374,13 @@ namespace NodeSynth
 						Index = static_cast<int>(Info.Choices.size()) - 1;
 					}
 					const char* Preview = Info.Choices.empty() ? "" : Info.Choices[Index].c_str();
-					if (ImGui::BeginCombo(Info.Name.c_str(), Preview))
+					const bool bComboOpen = ImGui::BeginCombo(Info.Name.c_str(), Preview);
+					// Tooltip on the combo's preview row, suppressed while the popup is open.
+					if (!bComboOpen && !Info.Description.empty() && ImGui::IsItemHovered())
+					{
+						ImGui::SetTooltip("%s", Info.Description.c_str());
+					}
+					if (bComboOpen)
 					{
 						for (int C = 0; C < static_cast<int>(Info.Choices.size()); ++C)
 						{
@@ -380,6 +405,10 @@ namespace NodeSynth
 					{
 						WriteParam(I, bChecked ? 1.0f : 0.0f);
 					}
+					if (!Info.Description.empty() && ImGui::IsItemHovered())
+					{
+						ImGui::SetTooltip("%s", Info.Description.c_str());
+					}
 					break;
 				}
 				case EParamKind::Float:
@@ -389,6 +418,10 @@ namespace NodeSynth
 					if (ImGui::SliderFloat(Info.Name.c_str(), &Value, Info.MinValue, Info.MaxValue, "%.3f", Flags))
 					{
 						WriteParam(I, Value);
+					}
+					if (!Info.Description.empty() && ImGui::IsItemHovered())
+					{
+						ImGui::SetTooltip("%s", Info.Description.c_str());
 					}
 					break;
 				}

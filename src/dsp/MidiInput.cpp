@@ -63,6 +63,7 @@ namespace NodeSynth
 		Dev.MinValue = 0.0f;
 		Dev.MaxValue = static_cast<float>(Dev.Choices.size() - 1);
 		Dev.DefaultValue = 0.0f;
+		Dev.Description = "MIDI input device. (none) closes any open port.";
 
 		FParamInfo Ch;
 		Ch.Name = "Channel";
@@ -72,6 +73,7 @@ namespace NodeSynth
 		Ch.MinValue = 0.0f;
 		Ch.MaxValue = 16.0f;
 		Ch.DefaultValue = 0.0f;
+		Ch.Description = "Filter to a specific MIDI channel, or Omni to accept all channels.";
 
 		return { Dev, Ch };
 	}

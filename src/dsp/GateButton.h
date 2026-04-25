@@ -32,7 +32,8 @@ namespace NodeSynth
 
 		std::vector<FParamInfo> GetParamInfos() const override
 		{
-			return { { "Held", 0.0f, 1.0f, 0.0f, false, EParamKind::Bool, {} } };
+			return { { "Held", 0.0f, 1.0f, 0.0f, false, EParamKind::Bool, {},
+				"When checked, the gate output is 1.0; otherwise 0.0." } };
 		}
 
 		float GetParamValue(uint32_t Index) const override

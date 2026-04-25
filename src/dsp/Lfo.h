@@ -57,9 +57,12 @@ namespace NodeSynth
 			return
 			{
 				{ "Shape",  0.0f, static_cast<float>(ELfoShape::COUNT) - 1.0f, 0.0f, false,
-					EParamKind::Choice, { "Sine", "Triangle", "Saw", "Square" } },
-				{ "Rate",   0.01f, 50.0f, 1.0f, true,  EParamKind::Float, {} },
-				{ "Amount", 0.0f,  1.0f,  1.0f, false, EParamKind::Float, {} },
+					EParamKind::Choice, { "Sine", "Triangle", "Saw", "Square" },
+					"LFO waveform." },
+				{ "Rate",   0.01f, 50.0f, 1.0f, true,  EParamKind::Float, {},
+					"Frequency in Hz. Slider is logarithmic. Smoothed." },
+				{ "Amount", 0.0f,  1.0f,  1.0f, false, EParamKind::Float, {},
+					"Output scaling (0..1). Multiplied with the raw shape value." },
 			};
 		}
 

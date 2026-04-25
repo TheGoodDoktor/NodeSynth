@@ -41,6 +41,10 @@ namespace NodeSynth
 		bool bLogarithmic = false;
 		EParamKind Kind = EParamKind::Float;
 		std::vector<std::string> Choices;  // populated only when Kind == Choice
+		// Optional one-line tooltip text shown on hover in the property panel.
+		// Empty disables the tooltip. New field at the end so existing brace
+		// initialisers that omit it default-construct to "".
+		std::string Description;
 	};
 
 	struct FProcessContext
