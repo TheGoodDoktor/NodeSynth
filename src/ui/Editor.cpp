@@ -16,6 +16,7 @@
 #include "dsp/Svf.h"
 #include "dsp/Vca.h"
 #include "dsp/VirtualKeyboard.h"
+#include "ui/AdsrUI.h"
 #include "ui/VirtualKeyboardUI.h"
 
 namespace ed = ax::NodeEditor;
@@ -339,6 +340,12 @@ namespace NodeSynth
 					break;
 				}
 			}
+		}
+
+		// Custom UI hooks for nodes that need more than the standard param widgets.
+		if (auto* Adsr = dynamic_cast<FAdsr*>(Rec->Node.get()))
+		{
+			DrawAdsrUI(*Adsr);
 		}
 	}
 
