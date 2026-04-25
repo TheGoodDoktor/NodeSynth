@@ -103,12 +103,15 @@ namespace NodeSynth
 		}
 
 		// -- Piano keyboard -----------------------------------------------------
-		constexpr float WhiteKeyWidth = 28.0f;
-		constexpr float WhiteKeyHeight = 110.0f;
-		constexpr float BlackKeyWidth = 18.0f;
-		constexpr float BlackKeyHeight = 70.0f;
+		// Sizes scale with the font so the keyboard grows on hi-DPI displays.
+		// (GetFontSize() / 13 = the DPI scale set in main.cpp.)
+		const float Scale = ImGui::GetFontSize() / 13.0f;
+		const float WhiteKeyWidth = 28.0f * Scale;
+		const float WhiteKeyHeight = 110.0f * Scale;
+		const float BlackKeyWidth = 18.0f * Scale;
+		const float BlackKeyHeight = 70.0f * Scale;
 		constexpr int32_t NumWhiteKeys = 8;
-		constexpr float TotalWidth = NumWhiteKeys * WhiteKeyWidth;
+		const float TotalWidth = NumWhiteKeys * WhiteKeyWidth;
 
 		ImDrawList* Draw = ImGui::GetWindowDrawList();
 		const ImVec2 Origin = ImGui::GetCursorScreenPos();

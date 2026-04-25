@@ -49,8 +49,11 @@ namespace NodeSynth
 		ImGui::TextDisabled("Envelope");
 
 		// -- Lay out a fixed-aspect plot area -----------------------------------
-		const float Width = std::max(220.0f, ImGui::GetContentRegionAvail().x);
-		constexpr float Height = 120.0f;
+		// Sizes scale with the font so the plot grows on hi-DPI displays alongside
+		// everything else. (GetFontSize() / 13 = the DPI scale set in main.cpp.)
+		const float Scale = ImGui::GetFontSize() / 13.0f;
+		const float Width = std::max(220.0f * Scale, ImGui::GetContentRegionAvail().x);
+		const float Height = 120.0f * Scale;
 		const ImVec2 Origin = ImGui::GetCursorScreenPos();
 		const ImVec2 Min = Origin;
 		const ImVec2 Max(Origin.x + Width, Origin.y + Height);

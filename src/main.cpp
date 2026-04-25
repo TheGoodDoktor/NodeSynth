@@ -172,6 +172,18 @@ int main()
 	const std::string ImGuiIniPath = (SettingsDir / "imgui.ini").string();
 	const std::string NodeEditorIniPath = (SettingsDir / "node_editor.ini").string();
 
+	// ---- DPI scale ---------------------------------------------------------
+	// GLFW reports the per-monitor content scale; on Windows / macOS Retina
+	// displays this is typically 1.5–2.0. We scale the font and the ImGui style
+	// up by the same factor so the whole UI grows proportionally instead of
+	// becoming illegibly small. Dynamic re-scaling on monitor switch is not
+	// handled — the scale is locked at the value reported when the window first
+	// appears.
+	float DpiX = 1.0f;
+	float DpiY = 1.0f;
+	glfwGetWindowContentScale(Window, &DpiX, &DpiY);
+	const float DpiScale = std::max(1.0f, std::max(DpiX, DpiY));
+
 	// ---- Dear ImGui ---------------------------------------------------------
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
@@ -181,7 +193,23 @@ int main()
 #ifdef __APPLE__
 	IO.ConfigMacOSXBehaviors = true;
 #endif
+
+	// Load the default font (ProggyClean) at the DPI-scaled pixel size so text
+	// stays sharp rather than getting bilinearly upscaled.
+	{
+		ImFontConfig FontCfg;
+		FontCfg.SizePixels = 13.0f * DpiScale;
+		IO.Fonts->AddFontDefault(&FontCfg);
+	}
+
 	ImGui::StyleColorsDark();
+	if (DpiScale != 1.0f)
+	{
+		// Scale frame padding, item spacing, scrollbar widths, etc. so the whole
+		// chrome matches the larger font. Call exactly once.
+		ImGui::GetStyle().ScaleAllSizes(DpiScale);
+	}
+
 	ImGui_ImplGlfw_InitForOpenGL(Window, true);
 	ImGui_ImplOpenGL3_Init(GlslVersion);
 
