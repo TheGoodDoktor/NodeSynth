@@ -17,6 +17,7 @@
 #include "dsp/Vca.h"
 #include "dsp/VirtualKeyboard.h"
 #include "ui/AdsrUI.h"
+#include "ui/NodeIcons.h"
 #include "ui/VirtualKeyboardUI.h"
 
 namespace ed = ax::NodeEditor;
@@ -77,6 +78,7 @@ namespace NodeSynth
 			const auto OutPorts = Node.GetOutputPorts();
 
 			ed::BeginNode(ed::NodeId(Id));
+			IconBeforeText(Node.GetTypeName(), ImGui::GetTextLineHeight());
 			ImGui::TextUnformatted(Node.GetTypeName());
 			ImGui::Dummy(ImVec2(120.0f, 2.0f));
 
@@ -206,42 +208,25 @@ namespace NodeSynth
 				bChanged = true;
 			};
 
-			if (ImGui::MenuItem("Oscillator"))
+			auto IconMenuItem = [&](const char* TypeName, const char* Label,
+				std::shared_ptr<INode> (*Make)()) -> void
 			{
-				SpawnNode(std::make_shared<FOscillator>());
-			}
-			if (ImGui::MenuItem("Gain"))
-			{
-				SpawnNode(std::make_shared<FGain>());
-			}
-			if (ImGui::MenuItem("VCA"))
-			{
-				SpawnNode(std::make_shared<FVca>());
-			}
-			if (ImGui::MenuItem("SVF"))
-			{
-				SpawnNode(std::make_shared<FSvf>());
-			}
-			if (ImGui::MenuItem("ADSR"))
-			{
-				SpawnNode(std::make_shared<FAdsr>());
-			}
-			if (ImGui::MenuItem("Gate"))
-			{
-				SpawnNode(std::make_shared<FGateButton>());
-			}
-			if (ImGui::MenuItem("MIDI Input"))
-			{
-				SpawnNode(std::make_shared<FMidiInput>());
-			}
-			if (ImGui::MenuItem("Virtual Keyboard"))
-			{
-				SpawnNode(std::make_shared<FVirtualKeyboard>());
-			}
-			if (ImGui::MenuItem("Output"))
-			{
-				SpawnNode(std::make_shared<FOutput>());
-			}
+				IconBeforeText(TypeName, ImGui::GetTextLineHeight());
+				if (ImGui::MenuItem(Label))
+				{
+					SpawnNode(Make());
+				}
+			};
+
+			IconMenuItem("Oscillator", "Oscillator",  []() -> std::shared_ptr<INode> { return std::make_shared<FOscillator>(); });
+			IconMenuItem("Gain",       "Gain",        []() -> std::shared_ptr<INode> { return std::make_shared<FGain>(); });
+			IconMenuItem("VCA",        "VCA",         []() -> std::shared_ptr<INode> { return std::make_shared<FVca>(); });
+			IconMenuItem("SVF",        "SVF",         []() -> std::shared_ptr<INode> { return std::make_shared<FSvf>(); });
+			IconMenuItem("ADSR",       "ADSR",        []() -> std::shared_ptr<INode> { return std::make_shared<FAdsr>(); });
+			IconMenuItem("Gate",       "Gate",        []() -> std::shared_ptr<INode> { return std::make_shared<FGateButton>(); });
+			IconMenuItem("MIDI",       "MIDI Input", []() -> std::shared_ptr<INode> { return std::make_shared<FMidiInput>(); });
+			IconMenuItem("VirtualKbd", "Virtual Keyboard", []() -> std::shared_ptr<INode> { return std::make_shared<FVirtualKeyboard>(); });
+			IconMenuItem("Output",     "Output",      []() -> std::shared_ptr<INode> { return std::make_shared<FOutput>(); });
 			ImGui::EndPopup();
 		}
 		ed::Resume();
