@@ -13,10 +13,12 @@
 #include <imgui_impl_opengl3.h>
 #include <miniaudio.h>
 
+#include "dsp/Adsr.h"
 #include "dsp/Gain.h"
 #include "dsp/Node.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
+#include "dsp/VirtualKeyboard.h"
 #include "graph/Graph.h"
 #include "ui/Editor.h"
 
@@ -77,14 +79,23 @@ namespace
 
 	void SeedDefaultPatch(FGraphModel& Model)
 	{
+		auto Kbd = std::make_shared<FVirtualKeyboard>();
+		auto Adsr = std::make_shared<FAdsr>();
 		auto Osc = std::make_shared<FOscillator>();
 		auto GainNode = std::make_shared<FGain>();
 		auto Out = std::make_shared<FOutput>();
 
-		const FNodeId OscId = Model.AddNode(Osc, 60.0f, 120.0f);
-		const FNodeId GainId = Model.AddNode(GainNode, 320.0f, 120.0f);
-		const FNodeId OutId = Model.AddNode(Out, 580.0f, 120.0f);
+		const FNodeId KbdId = Model.AddNode(Kbd, 60.0f, 60.0f);
+		const FNodeId AdsrId = Model.AddNode(Adsr, 60.0f, 240.0f);
+		const FNodeId OscId = Model.AddNode(Osc, 340.0f, 120.0f);
+		const FNodeId GainId = Model.AddNode(GainNode, 600.0f, 120.0f);
+		const FNodeId OutId = Model.AddNode(Out, 860.0f, 120.0f);
 
+		// Keyboard drives oscillator pitch and the envelope gate; envelope drives
+		// oscillator amplitude. Press a key in the property panel to hear the patch.
+		Model.AddLink(KbdId, FVirtualKeyboard::Output_Frequency, OscId, FOscillator::Input_Frequency);
+		Model.AddLink(KbdId, FVirtualKeyboard::Output_Gate, AdsrId, 0);
+		Model.AddLink(AdsrId, 0, OscId, FOscillator::Input_Amplitude);
 		Model.AddLink(OscId, 0, GainId, 0);
 		Model.AddLink(GainId, 0, OutId, 0);
 	}

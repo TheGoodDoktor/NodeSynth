@@ -15,6 +15,8 @@
 #include "dsp/Output.h"
 #include "dsp/Svf.h"
 #include "dsp/Vca.h"
+#include "dsp/VirtualKeyboard.h"
+#include "ui/VirtualKeyboardUI.h"
 
 namespace ed = ax::NodeEditor;
 
@@ -231,6 +233,10 @@ namespace NodeSynth
 			{
 				SpawnNode(std::make_shared<FMidiInput>());
 			}
+			if (ImGui::MenuItem("Virtual Keyboard"))
+			{
+				SpawnNode(std::make_shared<FVirtualKeyboard>());
+			}
 			if (ImGui::MenuItem("Output"))
 			{
 				SpawnNode(std::make_shared<FOutput>());
@@ -333,6 +339,12 @@ namespace NodeSynth
 					break;
 				}
 			}
+		}
+
+		// Custom UI hooks for nodes that need more than the standard param widgets.
+		if (auto* Kbd = dynamic_cast<FVirtualKeyboard*>(Rec->Node.get()))
+		{
+			DrawVirtualKeyboardUI(*Kbd);
 		}
 	}
 }
