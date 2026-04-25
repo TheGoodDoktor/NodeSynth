@@ -5,6 +5,7 @@
 #include <memory>
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <imgui_node_editor.h>
 
 #include "dsp/Adsr.h"
@@ -18,6 +19,8 @@
 #include "dsp/VirtualKeyboard.h"
 #include "ui/AdsrUI.h"
 #include "ui/NodeIcons.h"
+#include "ui/NodeRegistry.h"
+#include "ui/Palette.h"
 #include "ui/VirtualKeyboardUI.h"
 
 namespace ed = ax::NodeEditor;
@@ -208,30 +211,46 @@ namespace NodeSynth
 				bChanged = true;
 			};
 
-			auto IconMenuItem = [&](const char* TypeName, const char* Label,
-				std::shared_ptr<INode> (*Make)()) -> void
+			for (const FNodeRegistration& Reg : GetNodeRegistry())
 			{
-				IconBeforeText(TypeName, ImGui::GetTextLineHeight());
-				if (ImGui::MenuItem(Label))
+				IconBeforeText(Reg.TypeName, ImGui::GetTextLineHeight());
+				if (ImGui::MenuItem(Reg.MenuLabel))
 				{
-					SpawnNode(Make());
+					SpawnNode(Reg.Make());
 				}
-			};
-
-			IconMenuItem("Oscillator", "Oscillator",  []() -> std::shared_ptr<INode> { return std::make_shared<FOscillator>(); });
-			IconMenuItem("Gain",       "Gain",        []() -> std::shared_ptr<INode> { return std::make_shared<FGain>(); });
-			IconMenuItem("VCA",        "VCA",         []() -> std::shared_ptr<INode> { return std::make_shared<FVca>(); });
-			IconMenuItem("SVF",        "SVF",         []() -> std::shared_ptr<INode> { return std::make_shared<FSvf>(); });
-			IconMenuItem("ADSR",       "ADSR",        []() -> std::shared_ptr<INode> { return std::make_shared<FAdsr>(); });
-			IconMenuItem("Gate",       "Gate",        []() -> std::shared_ptr<INode> { return std::make_shared<FGateButton>(); });
-			IconMenuItem("MIDI",       "MIDI Input", []() -> std::shared_ptr<INode> { return std::make_shared<FMidiInput>(); });
-			IconMenuItem("VirtualKbd", "Virtual Keyboard", []() -> std::shared_ptr<INode> { return std::make_shared<FVirtualKeyboard>(); });
-			IconMenuItem("Output",     "Output",      []() -> std::shared_ptr<INode> { return std::make_shared<FOutput>(); });
+			}
 			ImGui::EndPopup();
 		}
 		ed::Resume();
 
 		ed::End();
+
+		// Drop target for the node palette. Covers the entire graph window so the
+		// user can drop a palette entry anywhere in the canvas. ScreenToCanvas
+		// requires the editor context to still be current, hence ahead of
+		// SetCurrentEditor(nullptr).
+		const ImVec2 WinPos = ImGui::GetWindowPos();
+		const ImVec2 WinSize = ImGui::GetWindowSize();
+		const ImRect DropRect(WinPos, ImVec2(WinPos.x + WinSize.x, WinPos.y + WinSize.y));
+		if (ImGui::BeginDragDropTargetCustom(DropRect, ImGui::GetID("##graph_drop")))
+		{
+			if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(PaletteDragPayloadId))
+			{
+				const int32_t Index = *static_cast<const int32_t*>(Payload->Data);
+				const auto& Registry = GetNodeRegistry();
+				if (Index >= 0 && Index < static_cast<int32_t>(Registry.size()))
+				{
+					const ImVec2 ScreenPos = ImGui::GetMousePos();
+					const ImVec2 CanvasPos = ed::ScreenToCanvas(ScreenPos);
+					std::shared_ptr<INode> NewNode = Registry[Index].Make();
+					const FNodeId NewId = Model.AddNode(NewNode, CanvasPos.x, CanvasPos.y);
+					ed::SetNodePosition(ed::NodeId(NewId), CanvasPos);
+					bChanged = true;
+				}
+			}
+			ImGui::EndDragDropTarget();
+		}
+
 		ed::SetCurrentEditor(nullptr);
 
 		bFirstFrame = false;

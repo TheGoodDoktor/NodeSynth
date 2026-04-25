@@ -21,6 +21,7 @@
 #include "dsp/VirtualKeyboard.h"
 #include "graph/Graph.h"
 #include "ui/Editor.h"
+#include "ui/Palette.h"
 
 using namespace NodeSynth;
 
@@ -217,6 +218,11 @@ int main()
 		// other nodes' parameters).
 		ImGui::Begin("Keyboard");
 		EditorPanel.DrawKeyboardPanel(Model);
+		ImGui::End();
+
+		// Node palette — drag entries onto the Graph window to create nodes.
+		ImGui::Begin("Palette");
+		DrawNodePalette();
 		ImGui::End();
 
 		// Status
