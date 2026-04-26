@@ -81,6 +81,19 @@ A small `FClock` source emits a square-wave Gate output at a configurable BPM. D
 
 **Out of scope.** Phase 5 deliverable. Every Phase-4 node stays mono-in / mono-out. Document explicitly so Phase-5 work doesn't rediscover this.
 
+### 1.9 Voice-mixer gain convention
+
+`Internal::FVoiceMixer` (the compiler-synthesised summing node) currently does a straight sum of N voice buffers — no attenuation. With `NumVoices=8` and per-voice envelopes at `Sustain=0.7`, in-phase chords can peak at `8 × 0.7 = 5.6`, which clips at the device output. The existing seeded patch compensates with a master `Gain` of 0.15 downstream of the mixer; users authoring polyphonic patches need to do the same.
+
+**Decision (Phase 4):** keep the "straight sum, user trims downstream" model. Don't make `FVoiceMixer` auto-divide by `NumVoices`.
+
+Why not auto-attenuate:
+- Audio summing is what the user expects from a "polyphonic mix" — a single voice should sound at its full amplitude, not at 1/N of it. Auto-divide changes the loudness of every existing patch silently when reloaded, and makes per-voice authoring counter-intuitive (you'd write a voice that sounds quiet in isolation and only "fills in" when other voices play).
+- The Freeverb / Delay / Waveshaper effects in 4A–4C want to see signals scaled the same way regardless of how many voices are active — auto-divide breaks that.
+- `FVoiceMixer` is internal; users can't insert a custom mixer between voices and the boundary if they want different summing behaviour. So a hardcoded division is the wrong place to bake a policy.
+
+**How to apply:** a polyphonic patch authoring guideline — put a `Gain` (or `VCA`) on the master bus and trim it for the chord density you expect (`1/N` is a clip-free starting point; many users prefer `1/√N` and accept rare clips). Document this in `CLAUDE.md` so future seeded patches and tutorials get it right. Auto-attenuation stays in the deferred list (see §5) in case real-world feedback flips the call.
+
 ---
 
 ## 2. Sub-phases
@@ -188,6 +201,7 @@ If schedule pressure hits, the sensible cut is **4F**: ship Phase 4 minus undo/r
 
 ## 5. What stays deferred
 
+- **Auto-attenuating voice mixer.** `Internal::FVoiceMixer` could divide its summed output by the number of active voices (or by `√N`) so the master output stays at unity regardless of chord density. Decided against in §1.9 — changes patch loudness silently on reload and breaks effect-bus expectations. Revisit if user feedback flips the call.
 - **Stereo signal path.** Every Phase-4 node is mono. Phase 5 deliverable.
 - **Oversampling** for nonlinear nodes (Waveshaper, future distortion variants). Phase 5.
 - **Convolution / plate / hall reverb.** Phase 5+; Freeverb covers v1.
