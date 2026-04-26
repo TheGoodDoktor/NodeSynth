@@ -43,9 +43,12 @@ namespace NodeSynth
 		{
 			return
 			{
-				{ "Audio",     EPortType::Audio },
-				{ "Cutoff",    EPortType::Control },
-				{ "Resonance", EPortType::Control },
+				{ "Audio",     EPortType::Audio,
+					"Audio signal to filter." },
+				{ "Cutoff",    EPortType::Control,
+					"Cutoff frequency in Hz. Overrides the Cutoff param when connected." },
+				{ "Resonance", EPortType::Control,
+					"Resonance / Q (0..1). Overrides the Resonance param when connected." },
 			};
 		}
 
@@ -53,9 +56,12 @@ namespace NodeSynth
 		{
 			return
 			{
-				{ "LP", EPortType::Audio },
-				{ "HP", EPortType::Audio },
-				{ "BP", EPortType::Audio },
+				{ "LP", EPortType::Audio,
+					"Low-pass output. Frequencies below Cutoff pass through; higher frequencies attenuate." },
+				{ "HP", EPortType::Audio,
+					"High-pass output. Frequencies above Cutoff pass through; lower frequencies attenuate." },
+				{ "BP", EPortType::Audio,
+					"Band-pass output. Only frequencies near Cutoff pass; the band width tightens with Resonance." },
 			};
 		}
 

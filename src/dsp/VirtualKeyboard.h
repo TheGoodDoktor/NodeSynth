@@ -50,10 +50,14 @@ namespace NodeSynth
 		{
 			return
 			{
-				{ "Gate",      EPortType::Control },
-				{ "Frequency", EPortType::Control },
-				{ "Velocity",  EPortType::Control },
-				{ "ModWheel",  EPortType::Control },
+				{ "Gate",      EPortType::Control,
+					"1.0 while any key is held, 0.0 otherwise." },
+				{ "Frequency", EPortType::Control,
+					"Frequency of the most recently pressed key (Hz)." },
+				{ "Velocity",  EPortType::Control,
+					"Fixed velocity (Velocity param) while a key is held." },
+				{ "ModWheel",  EPortType::Control,
+					"Mod-wheel value (0..1). Smoothed." },
 			};
 		}
 

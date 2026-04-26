@@ -27,7 +27,8 @@ namespace NodeSynth
 
 		std::vector<FPortInfo> GetOutputPorts() const override
 		{
-			return { { "Out", EPortType::Control } };
+			return { { "Out", EPortType::Control,
+				"Constant signal at the Value param." } };
 		}
 
 		std::vector<FParamInfo> GetParamInfos() const override

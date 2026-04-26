@@ -60,10 +60,14 @@ namespace NodeSynth
 		{
 			return
 			{
-				{ "Gate",      EPortType::Control },
-				{ "Frequency", EPortType::Control },
-				{ "Velocity",  EPortType::Control },
-				{ "Note",      EPortType::Control },
+				{ "Gate",      EPortType::Control,
+					"Per-voice gate (polyphonic). Drive an ADSR with this." },
+				{ "Frequency", EPortType::Control,
+					"Per-voice note frequency in Hz (polyphonic)." },
+				{ "Velocity",  EPortType::Control,
+					"Per-voice velocity (0..1)." },
+				{ "Note",      EPortType::Control,
+					"Per-voice MIDI note number (0..127)." },
 			};
 		}
 

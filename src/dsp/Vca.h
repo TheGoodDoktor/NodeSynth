@@ -14,14 +14,17 @@ namespace NodeSynth
 		{
 			return
 			{
-				{ "Audio",   EPortType::Audio },
-				{ "Control", EPortType::Control },
+				{ "Audio",   EPortType::Audio,
+					"Audio signal to be amplified." },
+				{ "Control", EPortType::Control,
+					"Multiplier (e.g. ADSR envelope, LFO scaled to 0..1).\n"
+					"Disconnected = pass-through at unity." },
 			};
 		}
 
 		std::vector<FPortInfo> GetOutputPorts() const override
 		{
-			return { { "Out", EPortType::Audio } };
+			return { { "Out", EPortType::Audio, "Audio = Audio × Control." } };
 		}
 
 		void Process(const FProcessContext& Ctx) override

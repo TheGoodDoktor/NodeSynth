@@ -27,7 +27,8 @@ namespace NodeSynth
 
 		std::vector<FPortInfo> GetOutputPorts() const override
 		{
-			return { { "Gate", EPortType::Control } };
+			return { { "Gate", EPortType::Control,
+				"1.0 when Held is checked, otherwise 0.0." } };
 		}
 
 		std::vector<FParamInfo> GetParamInfos() const override

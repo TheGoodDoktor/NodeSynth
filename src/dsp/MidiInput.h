@@ -53,9 +53,12 @@ namespace NodeSynth
 		{
 			return
 			{
-				{ "Gate",      EPortType::Control },
-				{ "Frequency", EPortType::Control },
-				{ "Velocity",  EPortType::Control },
+				{ "Gate",      EPortType::Control,
+					"1.0 while a note is held, 0.0 otherwise." },
+				{ "Frequency", EPortType::Control,
+					"Most recent note's frequency in Hz." },
+				{ "Velocity",  EPortType::Control,
+					"Most recent note's velocity (0..1)." },
 			};
 		}
 

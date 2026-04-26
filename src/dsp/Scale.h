@@ -26,12 +26,14 @@ namespace NodeSynth
 
 		std::vector<FPortInfo> GetInputPorts() const override
 		{
-			return { { "In", EPortType::Control } };
+			return { { "In", EPortType::Control,
+				"Source signal. Values outside [InMin, InMax] are extrapolated, not clamped." } };
 		}
 
 		std::vector<FPortInfo> GetOutputPorts() const override
 		{
-			return { { "Out", EPortType::Control } };
+			return { { "Out", EPortType::Control,
+				"Linearly remapped to [OutMin, OutMax]." } };
 		}
 
 		std::vector<FParamInfo> GetParamInfos() const override

@@ -15,14 +15,14 @@ namespace NodeSynth
 		{
 			return
 			{
-				{ "A", EPortType::Control },
-				{ "B", EPortType::Control },
+				{ "A", EPortType::Control, "First operand. Disconnected = 1 (identity)." },
+				{ "B", EPortType::Control, "Second operand. Disconnected = 1 (identity)." },
 			};
 		}
 
 		std::vector<FPortInfo> GetOutputPorts() const override
 		{
-			return { { "Out", EPortType::Control } };
+			return { { "Out", EPortType::Control, "A × B." } };
 		}
 
 		void Process(const FProcessContext& Ctx) override

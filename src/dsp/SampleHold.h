@@ -22,14 +22,17 @@ namespace NodeSynth
 		{
 			return
 			{
-				{ "In",      EPortType::Control },
-				{ "Trigger", EPortType::Control },
+				{ "In",      EPortType::Control,
+					"Signal to sample. Disconnected = 0." },
+				{ "Trigger", EPortType::Control,
+					"Rising edge (threshold 0.5) latches In into Out." },
 			};
 		}
 
 		std::vector<FPortInfo> GetOutputPorts() const override
 		{
-			return { { "Out", EPortType::Control } };
+			return { { "Out", EPortType::Control,
+				"Last latched In value, held until the next trigger." } };
 		}
 
 		void Prepare(double /*SampleRate*/) override

@@ -56,14 +56,17 @@ namespace NodeSynth
 		{
 			return
 			{
-				{ "Freq", EPortType::Control },
-				{ "Amp",  EPortType::Control },
+				{ "Freq", EPortType::Control,
+					"Frequency in Hz. Overrides the Frequency param when connected." },
+				{ "Amp",  EPortType::Control,
+					"Amplitude (0..1). Overrides the Amplitude param when connected. Smoothed." },
 			};
 		}
 
 		std::vector<FPortInfo> GetOutputPorts() const override
 		{
-			return { { "Out", EPortType::Audio } };
+			return { { "Out", EPortType::Audio,
+				"Audio output. Waveform shape comes from the Shape param." } };
 		}
 
 		std::vector<FParamInfo> GetParamInfos() const override

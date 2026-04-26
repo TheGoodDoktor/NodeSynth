@@ -32,12 +32,16 @@ namespace NodeSynth
 
 		std::vector<FPortInfo> GetInputPorts() const override
 		{
-			return { { "Gate", EPortType::Control } };
+			return { { "Gate", EPortType::Control,
+				"Rising edge starts Attack; falling edge starts Release.\n"
+				"Threshold 0.5." } };
 		}
 
 		std::vector<FPortInfo> GetOutputPorts() const override
 		{
-			return { { "Env", EPortType::Control } };
+			return { { "Env", EPortType::Control,
+				"Envelope output (0..1). Wire into a VCA's Control or an\n"
+				"Oscillator's Amp input to shape note loudness." } };
 		}
 
 		std::vector<FParamInfo> GetParamInfos() const override

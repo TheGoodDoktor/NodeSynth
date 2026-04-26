@@ -20,12 +20,12 @@ namespace NodeSynth
 
 		std::vector<FPortInfo> GetInputPorts() const override
 		{
-			return { { "In", EPortType::Audio } };
+			return { { "In", EPortType::Audio, "Audio signal to scale." } };
 		}
 
 		std::vector<FPortInfo> GetOutputPorts() const override
 		{
-			return { { "Out", EPortType::Audio } };
+			return { { "Out", EPortType::Audio, "Audio output (In × Gain)." } };
 		}
 
 		std::vector<FParamInfo> GetParamInfos() const override

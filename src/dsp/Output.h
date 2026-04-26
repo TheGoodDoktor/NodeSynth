@@ -14,7 +14,8 @@ namespace NodeSynth
 
 		std::vector<FPortInfo> GetInputPorts() const override
 		{
-			return { { "In", EPortType::Audio } };
+			return { { "In", EPortType::Audio,
+				"Master audio that gets routed to the device output." } };
 		}
 
 		std::vector<FPortInfo> GetOutputPorts() const override

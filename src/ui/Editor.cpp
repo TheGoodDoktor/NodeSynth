@@ -77,6 +77,11 @@ namespace NodeSynth
 		ed::SetCurrentEditor(Context);
 		ed::Begin("Node Editor", ImVec2(0.0f, 0.0f));
 
+		// Title-bar screen rects per node, captured during the draw loop. Used
+		// after ed::End to scope the node-tooltip hover check to the title only,
+		// so hovering a pin doesn't simultaneously fire the node tooltip.
+		std::unordered_map<FNodeId, std::pair<ImVec2, ImVec2>> NodeTitleRects;
+
 		// Draw nodes.
 		for (const auto& [Id, Rec] : Model.GetNodes())
 		{
@@ -85,6 +90,7 @@ namespace NodeSynth
 			const auto OutPorts = Node.GetOutputPorts();
 
 			ed::BeginNode(ed::NodeId(Id));
+			ImGui::BeginGroup();
 			IconBeforeText(Node.GetTypeName(), ImGui::GetTextLineHeight());
 			ImGui::TextUnformatted(Node.GetTypeName());
 			if (Rec.bPerVoice)
@@ -94,6 +100,8 @@ namespace NodeSynth
 				ImGui::SameLine();
 				ImGui::TextColored(ImVec4(0.55f, 0.85f, 1.0f, 1.0f), "[poly]");
 			}
+			ImGui::EndGroup();
+			NodeTitleRects[Id] = { ImGui::GetItemRectMin(), ImGui::GetItemRectMax() };
 			ImGui::Dummy(ImVec2(120.0f, 2.0f));
 
 			const size_t Rows = std::max(InPorts.size(), OutPorts.size());
@@ -268,36 +276,86 @@ namespace NodeSynth
 		}
 		ed::Resume();
 
-		// Hover tooltip on graph nodes. Looks up the same registry entry the
-		// palette uses so the wording stays in sync. Suspended out of the editor
-		// canvas so it renders in screen space; suppressed during drag-drop so
-		// it doesn't fight the drag preview.
-		if (const ed::NodeId HoveredNode = ed::GetHoveredNode())
+		// Hover tooltips. Pin tooltip wins if a pin is under the cursor; node
+		// tooltip fires only when the cursor is inside the captured title rect.
+		// Both suspend out of the editor canvas so they render in screen space,
+		// and both are suppressed during drag-drop so they don't fight previews.
+		const ed::PinId HoveredPin = ed::GetHoveredPin();
+		const bool bDragActive = ImGui::GetDragDropPayload() != nullptr;
+		if (HoveredPin && !bDragActive)
 		{
-			if (FNodeRecord* Rec = Model.FindNode(HoveredNode.Get());
-				Rec != nullptr && ImGui::GetDragDropPayload() == nullptr)
+			FNodeId NodeId = 0;
+			uint32_t PortIndex = 0;
+			bool bIsOutput = false;
+			DecodePinId(HoveredPin.Get(), NodeId, PortIndex, bIsOutput);
+			if (FNodeRecord* Rec = Model.FindNode(NodeId))
 			{
-				const char* TypeName = Rec->Node->GetTypeName();
-				const FNodeRegistration* Match = nullptr;
-				for (const FNodeRegistration& Reg : GetNodeRegistry())
+				const auto Ports = bIsOutput
+					? Rec->Node->GetOutputPorts()
+					: Rec->Node->GetInputPorts();
+				if (PortIndex < Ports.size())
 				{
-					if (std::strcmp(Reg.TypeName, TypeName) == 0)
+					const FPortInfo& Port = Ports[PortIndex];
+					if (!Port.Description.empty())
 					{
-						Match = &Reg;
-						break;
+						ed::Suspend();
+						ImGui::BeginTooltip();
+						ImGui::Text("%s  (%s %s)",
+							Port.Name.c_str(),
+							Port.Type == EPortType::Audio ? "Audio" : "Control",
+							bIsOutput ? "out" : "in");
+						ImGui::Separator();
+						ImGui::PushTextWrapPos(ImGui::GetFontSize() * 24.0f);
+						ImGui::TextUnformatted(Port.Description.c_str());
+						ImGui::PopTextWrapPos();
+						ImGui::EndTooltip();
+						ed::Resume();
 					}
 				}
-				if (Match != nullptr && Match->Description != nullptr)
+			}
+		}
+		else if (!HoveredPin && !bDragActive)
+		{
+			if (const ed::NodeId HoveredNode = ed::GetHoveredNode())
+			{
+				const FNodeId Id = HoveredNode.Get();
+				auto RectIt = NodeTitleRects.find(Id);
+				if (RectIt != NodeTitleRects.end())
 				{
-					ed::Suspend();
-					ImGui::BeginTooltip();
-					ImGui::TextUnformatted(Match->MenuLabel);
-					ImGui::Separator();
-					ImGui::PushTextWrapPos(ImGui::GetFontSize() * 24.0f);
-					ImGui::TextUnformatted(Match->Description);
-					ImGui::PopTextWrapPos();
-					ImGui::EndTooltip();
-					ed::Resume();
+					const ImVec2 Mouse = ImGui::GetMousePos();
+					const ImVec2& Min = RectIt->second.first;
+					const ImVec2& Max = RectIt->second.second;
+					const bool bInTitle =
+						Mouse.x >= Min.x && Mouse.x < Max.x &&
+						Mouse.y >= Min.y && Mouse.y < Max.y;
+					if (bInTitle)
+					{
+						if (FNodeRecord* Rec = Model.FindNode(Id))
+						{
+							const char* TypeName = Rec->Node->GetTypeName();
+							const FNodeRegistration* Match = nullptr;
+							for (const FNodeRegistration& Reg : GetNodeRegistry())
+							{
+								if (std::strcmp(Reg.TypeName, TypeName) == 0)
+								{
+									Match = &Reg;
+									break;
+								}
+							}
+							if (Match != nullptr && Match->Description != nullptr)
+							{
+								ed::Suspend();
+								ImGui::BeginTooltip();
+								ImGui::TextUnformatted(Match->MenuLabel);
+								ImGui::Separator();
+								ImGui::PushTextWrapPos(ImGui::GetFontSize() * 24.0f);
+								ImGui::TextUnformatted(Match->Description);
+								ImGui::PopTextWrapPos();
+								ImGui::EndTooltip();
+								ed::Resume();
+							}
+						}
+					}
 				}
 			}
 		}
@@ -368,9 +426,7 @@ namespace NodeSynth
 				{
 					if (Reg.Description != nullptr && Reg.Description[0] != '\0')
 					{
-						ImGui::PushTextWrapPos(0.0f);
-						ImGui::TextDisabled("%s", Reg.Description);
-						ImGui::PopTextWrapPos();
+						ImGui::TextWrapped("%s", Reg.Description);
 					}
 					break;
 				}

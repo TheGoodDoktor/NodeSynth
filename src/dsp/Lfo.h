@@ -44,12 +44,15 @@ namespace NodeSynth
 
 		std::vector<FPortInfo> GetInputPorts() const override
 		{
-			return { { "Sync", EPortType::Control } };
+			return { { "Sync", EPortType::Control,
+				"Rising edge (threshold 0.5) resets phase to 0.\n"
+				"Leave disconnected for free-running." } };
 		}
 
 		std::vector<FPortInfo> GetOutputPorts() const override
 		{
-			return { { "Out", EPortType::Control } };
+			return { { "Out", EPortType::Control,
+				"Bipolar [-Amount, +Amount]. Use a Scale node to remap to a unipolar range." } };
 		}
 
 		std::vector<FParamInfo> GetParamInfos() const override

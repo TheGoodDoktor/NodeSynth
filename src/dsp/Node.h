@@ -24,6 +24,10 @@ namespace NodeSynth
 	{
 		std::string Name;
 		EPortType Type = EPortType::Audio;
+		// Optional one-line tooltip shown on hover in the graph editor. Empty
+		// disables. Trailing field so existing brace initialisers that omit it
+		// still compile.
+		std::string Description;
 	};
 
 	enum class EParamKind : uint8_t
