@@ -2,6 +2,7 @@
 #include "dsp/Gain.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
+#include "dsp/Vca.h"
 #include "dsp/VoiceAllocator.h"
 #include "dsp/internal/VoiceMixer.h"
 #include "graph/Graph.h"
@@ -202,6 +203,64 @@ TEST_CASE("Partition: non-cloneable per-voice flag falls back to mono with warni
 	FGraphModel Model;
 	const FNodeId OutId = Model.AddNode(std::make_shared<FOutput>());
 	REQUIRE_FALSE(Model.SetNodePerVoice(OutId, true));
+}
+
+TEST_CASE("Partition: per-voice ADSRs release independently", "[partition][adsr]")
+{
+	// Wire: Allocator → ADSR (per-voice) → Osc (per-voice via Amp) → Output.
+	// Press two notes, run until both ADSRs are in Sustain, release one.
+	// The released voice's ADSR should enter Release; the other stays in Sustain.
+	FGraphModel Model;
+	auto Alloc = std::make_shared<FVoiceAllocator>();
+	auto Adsr = std::make_shared<FAdsr>();
+	auto Osc = std::make_shared<FOscillator>();
+	auto Out = std::make_shared<FOutput>();
+	const FNodeId AllocId = Model.AddNode(Alloc);
+	const FNodeId AdsrId = Model.AddNode(Adsr);
+	const FNodeId OscId = Model.AddNode(Osc);
+	const FNodeId OutId = Model.AddNode(Out);
+	REQUIRE(Model.SetNodePerVoice(AdsrId, true));
+	REQUIRE(Model.SetNodePerVoice(OscId, true));
+	REQUIRE(Model.AddLink(AllocId, FVoiceAllocator::Output_Gate, AdsrId, 0) != 0);
+	REQUIRE(Model.AddLink(AllocId, FVoiceAllocator::Output_Frequency,
+		OscId, FOscillator::Input_Frequency) != 0);
+	REQUIRE(Model.AddLink(AdsrId, 0, OscId, FOscillator::Input_Amplitude) != 0);
+	REQUIRE(Model.AddLink(OscId, 0, OutId, 0) != 0);
+
+	// Short envelope so the test resolves quickly.
+	Adsr->SetParamValue(FAdsr::Param_AttackMs, 1.0f);
+	Adsr->SetParamValue(FAdsr::Param_DecayMs, 1.0f);
+	Adsr->SetParamValue(FAdsr::Param_Sustain, 0.5f);
+	Adsr->SetParamValue(FAdsr::Param_ReleaseMs, 500.0f);
+
+	auto Snapshot = CompileAt(Model);
+	const auto& AdsrEntry = Snapshot->NodeById.at(AdsrId);
+	REQUIRE(AdsrEntry.Voices.size() == 8);
+
+	// Press two notes; their gates set up voices 0 and 1.
+	FAudioCommandRing Ring;
+	Ring.Push(FAudioCommand::MakeNoteOn(60, 1.0f));
+	Ring.Push(FAudioCommand::MakeNoteOn(64, 1.0f));
+	Snapshot->DrainCommands(Ring);
+
+	// Run a few blocks so the ADSRs settle into Sustain.
+	FProcessContext Ctx;
+	for (int B = 0; B < 30; ++B) { Snapshot->Process(Ctx); }
+
+	auto* Voice0Adsr = dynamic_cast<FAdsr*>(AdsrEntry.Voices[0]);
+	auto* Voice1Adsr = dynamic_cast<FAdsr*>(AdsrEntry.Voices[1]);
+	REQUIRE(Voice0Adsr != nullptr);
+	REQUIRE(Voice1Adsr != nullptr);
+	REQUIRE(Voice0Adsr->GetStage() == FAdsr::EStage::Sustain);
+	REQUIRE(Voice1Adsr->GetStage() == FAdsr::EStage::Sustain);
+
+	// Release note 60 only.
+	Ring.Push(FAudioCommand::MakeNoteOff(60));
+	Snapshot->DrainCommands(Ring);
+	Snapshot->Process(Ctx); // one block to register the gate-down edge
+
+	REQUIRE(Voice0Adsr->GetStage() == FAdsr::EStage::Release);
+	REQUIRE(Voice1Adsr->GetStage() == FAdsr::EStage::Sustain);
 }
 
 TEST_CASE("Partition: SetParam on a per-voice node fans out to every clone", "[partition][setparam]")

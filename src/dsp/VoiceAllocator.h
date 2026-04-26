@@ -120,6 +120,12 @@ namespace NodeSynth
 		void Prepare(double InSampleRate) override
 		{
 			SampleRate = InSampleRate;
+			// "Fully released" cutoff: a voice whose gate has been low for at
+			// least 100 ms is preferred over one still in its release tail.
+			// Conservative — typical ADSR releases are longer (400 ms default),
+			// so most note-offs leave voices in the "tailing" bucket and the
+			// stealing policy still has well-defined behaviour.
+			ReleaseThresholdSamples = static_cast<uint64_t>(InSampleRate * 0.1);
 			SampleCounter = 0;
 			for (size_t I = 0; I < MaxVoices; ++I)
 			{
@@ -157,12 +163,27 @@ namespace NodeSynth
 
 		// Audio-thread API — called from FAudioGraph::DrainCommands (UI events)
 		// or directly by FMidiInput's Process when it drains real MIDI events.
+		// Allocation policy (§1.8 of PLAN-PHASE-3-VOICES.md):
+		//   1. Same-note re-trigger if the note is already held.
+		//   2. Oldest *fully-released* voice (gate low + released longer than
+		//      ReleaseThresholdSamples).
+		//   3. Oldest *tailing* voice (gate low, still in its release tail).
+		//   4. Oldest *held* voice — steal. ADSR retrigger-from-current-level
+		//      keeps the steal click-free.
 		void HandleNoteOn(uint8_t Note, float Velocity)
 		{
 			const size_t Active = ActiveVoiceCount();
+			constexpr size_t Invalid = static_cast<size_t>(-1);
 
-			// Stub allocation policy: same-note retrigger first, then first
-			// voice with gate=false. Full stealing policy lands in 3E-5.
+			auto Allocate = [&](size_t Idx)
+			{
+				Voices[Idx].Note = Note;
+				Voices[Idx].Velocity = Velocity;
+				Voices[Idx].bGate = true;
+				Voices[Idx].AgeSamples = 0;
+			};
+
+			// 1. Same-note retrigger.
 			for (size_t I = 0; I < Active; ++I)
 			{
 				if (Voices[I].bGate && Voices[I].Note == Note)
@@ -172,19 +193,73 @@ namespace NodeSynth
 					return;
 				}
 			}
+
+			// 2. Oldest fully-released voice.
+			size_t BestIdx = Invalid;
+			uint64_t BestAge = 0;
+			for (size_t I = 0; I < Active; ++I)
+			{
+				if (Voices[I].bGate)
+				{
+					continue;
+				}
+				const uint64_t ReleasedFor = SampleCounter - Voices[I].ReleaseStartedAtSample;
+				if (ReleasedFor < ReleaseThresholdSamples)
+				{
+					continue;
+				}
+				if (BestIdx == Invalid || Voices[I].AgeSamples > BestAge)
+				{
+					BestIdx = I;
+					BestAge = Voices[I].AgeSamples;
+				}
+			}
+			if (BestIdx != Invalid)
+			{
+				Allocate(BestIdx);
+				return;
+			}
+
+			// 3. Oldest tailing (gate low, still in release).
+			BestIdx = Invalid;
+			BestAge = 0;
+			for (size_t I = 0; I < Active; ++I)
+			{
+				if (Voices[I].bGate)
+				{
+					continue;
+				}
+				if (BestIdx == Invalid || Voices[I].AgeSamples > BestAge)
+				{
+					BestIdx = I;
+					BestAge = Voices[I].AgeSamples;
+				}
+			}
+			if (BestIdx != Invalid)
+			{
+				Allocate(BestIdx);
+				return;
+			}
+
+			// 4. Steal the oldest still-held voice.
+			BestIdx = Invalid;
+			BestAge = 0;
 			for (size_t I = 0; I < Active; ++I)
 			{
 				if (!Voices[I].bGate)
 				{
-					Voices[I].Note = Note;
-					Voices[I].Velocity = Velocity;
-					Voices[I].bGate = true;
-					Voices[I].AgeSamples = 0;
-					return;
+					continue;
+				}
+				if (BestIdx == Invalid || Voices[I].AgeSamples > BestAge)
+				{
+					BestIdx = I;
+					BestAge = Voices[I].AgeSamples;
 				}
 			}
-			// All voices held — Phase 3E-5 will pick the oldest to steal.
-			// For now drop the note silently.
+			if (BestIdx != Invalid)
+			{
+				Allocate(BestIdx);
+			}
 		}
 
 		void HandleNoteOff(uint8_t Note)
@@ -267,5 +342,6 @@ namespace NodeSynth
 
 		double SampleRate = 48000.0;
 		uint64_t SampleCounter = 0;
+		uint64_t ReleaseThresholdSamples = 4800;  // 100 ms at 48 kHz, recomputed in Prepare
 	};
 }

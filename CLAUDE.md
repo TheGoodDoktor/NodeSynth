@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 NodeSynth is a standalone C++20 node-based software synthesizer with a Dear ImGui front-end. The long-form roadmap lives in `docs/PLAN.md`.
 
-**Current status (2026-04-25):** Phases 0, 1, 2 complete plus Phase 3A (math/utility nodes), 3B (LFO), and 3C (patch save/load via JSON) are in. SPSC command queue (UI → Audio) carries `SetParam`. Subtractive mono synth target patch (`MIDI → Osc → SVF → VCA → Output`, with ADSR driving VCA gain and MIDI frequency driving the oscillator) is buildable in the UI. Node set: Oscillator (Sine/Saw/Square/Triangle/Noise with PolyBLEP), Gain, VCA, ADSR, SVF (TPT/ZDF form), Gate (manual toggle), MIDI Input, Virtual Keyboard, Output, Add, Multiply, Scale, Constant, Sample & Hold, LFO (Sine/Triangle/Saw/Square). Front-end has a node palette (drag-drop), node icons, ADSR envelope visualisation, persistent on-screen keyboard panel, and a File menu (New / Open / Save / Save As). Patches are JSON files; layout (`imgui.ini` + node-editor positions) persists to `~/.nodesynth/`. Catch2 test harness (65 tests, 21k+ assertions) covers graph, smoother, all DSP nodes, both SPSC rings (MIDI + audio commands) under concurrent producer/consumer, command-queue dispatch through the graph, and patch round-trip serialisation. Phase 3D (voice-allocator design) and 3E (implementation) remain.
+**Current status (2026-04-26):** Phases 0–3 complete. SPSC command queue (UI → Audio) carries `SetParam` / `NoteOn` / `NoteOff`. Polyphonic subtractive synth target patch is the seeded default — `VirtualKbd` (events → queue) → `FVoiceAllocator` → `Osc` (per-voice) + `Adsr` (per-voice) → synthesised mixer → `Gain` → `Output`. Holding 8 keys allocates 8 voices; a 9th note steals the oldest held with `Adsr` retrigger-from-current-level keeping it click-free. Node set: Oscillator (Sine/Saw/Square/Triangle/Noise with PolyBLEP), Gain, VCA, ADSR, SVF (TPT/ZDF form), Gate (manual toggle), MIDI Input, Virtual Keyboard, Output, Add, Multiply, Scale, Constant, Sample & Hold, LFO (Sine/Triangle/Saw/Square), Voice Allocator. Internal-only `_VoiceMixer` synthesised by the compiler when a per-voice Audio output feeds a mono Audio input. Front-end has node palette (drag-drop), node icons, ADSR envelope visualisation, persistent on-screen keyboard panel, File menu (New / Open / Save / Save As), per-voice flag toggle via right-click context menu with a `[poly]` header badge. Patches are JSON files (`per_voice` field optional, defaults to false for back-compat); layout (`imgui.ini` + node-editor positions) persists to `~/.nodesynth/`. Catch2 test harness (104 tests, 21k+ assertions) covers graph, smoother, all DSP nodes, both SPSC rings under concurrent producer/consumer, command-queue dispatch + `SetParam` fan-out to per-voice clones, patch round-trip serialisation, `INode::Clone()` for every cloneable type, the per-voice flag, voice-allocator stealing policy (oldest fully-released → tailing → held), and the Compile partition algorithm including 8-voice polyphonic audio summation and independent per-voice ADSR release. Phase 4 (delay, reverb, distortion, sequencer, scope/meter, undo/redo) is next.
 
 ## Build & run
 
@@ -97,10 +97,22 @@ Phase 2 added `src/midi/` for the SPSC `FMidiRing` and `src/dsp/MidiInput.{h,cpp
 
 **Structural commands through the queue.** The original plan called for `AddNode` / `RemoveNode` / `Connect` / `Disconnect` to flow through the SPSC queue too. Only `SetParam` does today; structural edits still recompile the whole `FAudioGraph` and atomic-swap the snapshot. RT-safe structural mutation needs allocation-free node construction, deferred destruction back to the UI thread, and incremental topo recomputation — substantial engineering, and no Phase 3 deliverable depends on it. Don't add new shortcuts that would make this harder to introduce later (e.g. don't bake "the audio thread can't see new nodes mid-block" assumptions outside `FAudioGraph` itself).
 
-Minor Phase 1 polish also outstanding:
-- `FOutput` is not enforced as "exactly one per graph" — extras are silently ignored by `Compile`.
-- No parameter smoothing (plan flags this for `Control` inputs; no `Control`-typed inputs exist yet).
-- Editor layout / node positions don't persist across runs (`ed::Config::SettingsFile = nullptr`, `imgui.ini` is gitignored).
+Resolved during Phase 3:
+- `FOutput` singleton enforcement in both `AddNode` and `AddNodeWithId`.
+- Editor layout persistence to `~/.nodesynth/` (`imgui.ini` + `node_editor.ini`).
+- Parameter smoothing landed where it's audibly required (Gain, Oscillator amplitude, LFO rate, virtual-keyboard mod). Not blanket-applied to every Control input.
+
+## Polyphony
+
+The voice-allocator design is fully laid out in `docs/PLAN-PHASE-3-VOICES.md` — read that before touching `FGraphModel::Compile`'s partition algorithm or `FVoiceAllocator`. Highlights:
+
+- **`INode::Clone()`** lives on the base class. Default implementation in `ui/NodeRegistry.cpp` instantiates a fresh node by type name and copies params by name (mirrors `LoadPatch`). Non-cloneable nodes (`FMidiInput`, `FVirtualKeyboard`, `FOutput`) override to return `nullptr`.
+- **Per-voice flag** is a `bool bPerVoice` on `FNodeRecord`, toggled via `FGraphModel::SetNodePerVoice` (rejects non-cloneable types) or right-click → "Per-voice" in the editor. Patches roundtrip the flag via the optional `per_voice` JSON field.
+- **`FGraphModel::Compile` partition** classifies each reachable node as Mono / PerVoice / VoiceAllocator. Per-voice nodes get cloned `MaxVoices=8` times. Validation rule: per-voice → mono Control links are rejected (return empty snapshot, log to stderr). A per-voice → mono Audio link gets a synthesised `Internal::FVoiceMixer` (one per `(FromNode, FromPort)` pair).
+- **Buffer routing** has four cases: mono→mono (as before), mono→per-voice (broadcast same buffer to every clone), per-voice→per-voice (paired by voice index), per-voice→mono Audio (through the mixer).
+- **`FAudioGraph::NodeById`** maps an FNodeId to `FNodeEntry { Primary; Voices }` so `DrainCommands` `SetParam` can fan out to all clones — slider drags on a per-voice node update every voice in lockstep.
+- **`NoteOn` / `NoteOff` commands** broadcast to every `FVoiceAllocator` in the snapshot. UI-thread sources push through the SPSC ring; `FMidiInput` calls allocator methods directly from the audio thread (we'd otherwise need MPSC for the ring).
+- **Voice stealing policy** in `FVoiceAllocator::HandleNoteOn`: same-note retrigger > oldest fully-released voice (`released_for > 100 ms`) > oldest tailing voice > steal oldest still-held. ADSR retrigger-from-current-level keeps steals click-free.
 
 ## Coding style
 

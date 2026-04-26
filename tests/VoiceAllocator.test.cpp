@@ -46,28 +46,93 @@ TEST_CASE("VoiceAllocator: 8 simultaneous NoteOns occupy 8 voices", "[voicealloc
 	}
 }
 
-TEST_CASE("VoiceAllocator: 9th note is dropped (no stealing in 3E-3 stub)", "[voicealloc]")
+TEST_CASE("VoiceAllocator: 9th note steals the oldest still-held voice", "[voicealloc][stealing]")
 {
 	FVoiceAllocator A;
 	A.Prepare(48000.0);
+	NodeSynth::FProcessContext Ctx;
 
+	// Press 8 notes with Process between each so AgeSamples differs.
 	for (uint8_t I = 0; I < 8; ++I)
 	{
 		A.HandleNoteOn(static_cast<uint8_t>(60 + I), 1.0f);
+		A.Process(Ctx); // advance time so this voice is now older than the next
 	}
-	// All eight voices held — a fresh note has nowhere to go yet.
-	A.HandleNoteOn(72, 1.0f);
 
-	// No voice should now hold note 72.
-	bool bHas72 = false;
-	for (size_t I = 0; I < 8; ++I)
+	// All 8 held; voice 0 should be oldest (got first NoteOn).
+	REQUIRE(A.GetVoice(0).bGate);
+	REQUIRE(A.GetVoice(0).Note == 60);
+
+	// 9th note steals the oldest held voice — that's voice 0.
+	A.HandleNoteOn(72, 1.0f);
+	REQUIRE(A.GetVoice(0).bGate);
+	REQUIRE(A.GetVoice(0).Note == 72);
+
+	// The other 7 should still be holding their original notes.
+	for (uint8_t I = 1; I < 8; ++I)
 	{
-		if (A.GetVoice(I).Note == 72 && A.GetVoice(I).bGate)
-		{
-			bHas72 = true;
-		}
+		REQUIRE(A.GetVoice(I).bGate);
+		REQUIRE(A.GetVoice(I).Note == 60 + I);
 	}
-	REQUIRE_FALSE(bHas72);
+}
+
+TEST_CASE("VoiceAllocator: a released voice gets a new note before any held voice is stolen", "[voicealloc][stealing]")
+{
+	FVoiceAllocator A;
+	A.Prepare(48000.0);
+	NodeSynth::FProcessContext Ctx;
+
+	// Fill all 8 voices.
+	for (uint8_t I = 0; I < 8; ++I)
+	{
+		A.HandleNoteOn(static_cast<uint8_t>(60 + I), 1.0f);
+		A.Process(Ctx);
+	}
+	// Release voice 4 (note 64). It's now in the release tail.
+	A.HandleNoteOff(64);
+	A.Process(Ctx);
+
+	// 9th note: should land in voice 4, not steal voice 0.
+	A.HandleNoteOn(80, 1.0f);
+	REQUIRE(A.GetVoice(4).bGate);
+	REQUIRE(A.GetVoice(4).Note == 80);
+
+	// Voice 0 must still hold its original note.
+	REQUIRE(A.GetVoice(0).bGate);
+	REQUIRE(A.GetVoice(0).Note == 60);
+}
+
+TEST_CASE("VoiceAllocator: prefers fully-released over still-tailing", "[voicealloc][stealing]")
+{
+	FVoiceAllocator A;
+	A.Prepare(48000.0);
+	NodeSynth::FProcessContext Ctx;
+
+	// Fill all 8 voices.
+	for (uint8_t I = 0; I < 8; ++I)
+	{
+		A.HandleNoteOn(static_cast<uint8_t>(60 + I), 1.0f);
+		A.Process(Ctx);
+	}
+
+	// Release voice 2 (oldest of two we'll release).
+	A.HandleNoteOff(62);
+
+	// Advance well past ReleaseThresholdSamples (100 ms = 4800 samples = 75 blocks).
+	for (int B = 0; B < 100; ++B) { A.Process(Ctx); }
+
+	// Now release voice 6. Voice 6 is in its release tail; voice 2 is fully
+	// released.
+	A.HandleNoteOff(66);
+	A.Process(Ctx);
+
+	// 9th note: should pick voice 2 (fully released) over voice 6 (tailing),
+	// even though voice 6 has been released more recently — fully-released
+	// always wins over tailing.
+	A.HandleNoteOn(90, 1.0f);
+	REQUIRE(A.GetVoice(2).bGate);
+	REQUIRE(A.GetVoice(2).Note == 90);
+	REQUIRE_FALSE(A.GetVoice(6).bGate);
 }
 
 TEST_CASE("VoiceAllocator: NoteOff clears the matching voice's gate", "[voicealloc]")
