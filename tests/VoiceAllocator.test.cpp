@@ -1,0 +1,248 @@
+#include "dsp/MidiInput.h"
+#include "dsp/Oscillator.h"
+#include "dsp/Output.h"
+#include "dsp/VoiceAllocator.h"
+#include "graph/AudioCommand.h"
+#include "graph/Graph.h"
+
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
+
+using NodeSynth::FAudioCommand;
+using NodeSynth::FAudioCommandRing;
+using NodeSynth::FAudioGraph;
+using NodeSynth::FCommandSink;
+using NodeSynth::FGraphModel;
+using NodeSynth::FMidiInput;
+using NodeSynth::FNodeId;
+using NodeSynth::FOutput;
+using NodeSynth::FProcessContext;
+using NodeSynth::FVoiceAllocator;
+
+namespace
+{
+	std::shared_ptr<FAudioGraph> CompileWith(FGraphModel& Model)
+	{
+		return Model.Compile(48000.0);
+	}
+}
+
+TEST_CASE("VoiceAllocator: 8 simultaneous NoteOns occupy 8 voices", "[voicealloc]")
+{
+	FVoiceAllocator A;
+	A.Prepare(48000.0);
+
+	for (uint8_t I = 0; I < 8; ++I)
+	{
+		A.HandleNoteOn(static_cast<uint8_t>(60 + I), 1.0f);
+	}
+
+	for (size_t I = 0; I < 8; ++I)
+	{
+		const auto& V = A.GetVoice(I);
+		REQUIRE(V.bGate == true);
+		REQUIRE(V.Note == 60 + I);
+		REQUIRE_THAT(V.Velocity, Catch::Matchers::WithinAbs(1.0f, 1e-6f));
+	}
+}
+
+TEST_CASE("VoiceAllocator: 9th note is dropped (no stealing in 3E-3 stub)", "[voicealloc]")
+{
+	FVoiceAllocator A;
+	A.Prepare(48000.0);
+
+	for (uint8_t I = 0; I < 8; ++I)
+	{
+		A.HandleNoteOn(static_cast<uint8_t>(60 + I), 1.0f);
+	}
+	// All eight voices held — a fresh note has nowhere to go yet.
+	A.HandleNoteOn(72, 1.0f);
+
+	// No voice should now hold note 72.
+	bool bHas72 = false;
+	for (size_t I = 0; I < 8; ++I)
+	{
+		if (A.GetVoice(I).Note == 72 && A.GetVoice(I).bGate)
+		{
+			bHas72 = true;
+		}
+	}
+	REQUIRE_FALSE(bHas72);
+}
+
+TEST_CASE("VoiceAllocator: NoteOff clears the matching voice's gate", "[voicealloc]")
+{
+	FVoiceAllocator A;
+	A.Prepare(48000.0);
+
+	A.HandleNoteOn(60, 0.8f);
+	A.HandleNoteOn(64, 0.8f);
+	A.HandleNoteOn(67, 0.8f);
+	REQUIRE(A.GetVoice(0).bGate);
+	REQUIRE(A.GetVoice(1).bGate);
+	REQUIRE(A.GetVoice(2).bGate);
+
+	A.HandleNoteOff(64);
+	// Voice that held 64 (the second allocation) should drop its gate.
+	REQUIRE(A.GetVoice(0).bGate);
+	REQUIRE_FALSE(A.GetVoice(1).bGate);
+	REQUIRE(A.GetVoice(2).bGate);
+}
+
+TEST_CASE("VoiceAllocator: same-note retrigger reuses the same voice", "[voicealloc]")
+{
+	FVoiceAllocator A;
+	A.Prepare(48000.0);
+
+	A.HandleNoteOn(60, 0.5f);
+	A.HandleNoteOn(60, 0.9f); // retrigger
+	// Voice 0 holds note 60 with the new velocity; voice 1 should still be free.
+	REQUIRE(A.GetVoice(0).bGate);
+	REQUIRE(A.GetVoice(0).Note == 60);
+	REQUIRE_THAT(A.GetVoice(0).Velocity, Catch::Matchers::WithinAbs(0.9f, 1e-6f));
+	REQUIRE_FALSE(A.GetVoice(1).bGate);
+}
+
+TEST_CASE("VoiceAllocator: NumVoices param caps allocation", "[voicealloc]")
+{
+	FVoiceAllocator A;
+	A.Prepare(48000.0);
+
+	// NumVoices choice indices: 0 = "1", 1 = "2", 2 = "4", 3 = "8".
+	A.SetParamValue(FVoiceAllocator::Param_NumVoices, 1.0f); // -> 2 voices
+	REQUIRE(A.ActiveVoiceCount() == 2);
+
+	A.HandleNoteOn(60, 1.0f);
+	A.HandleNoteOn(64, 1.0f);
+	A.HandleNoteOn(67, 1.0f); // dropped — only 2 voices active
+
+	REQUIRE(A.GetVoice(0).bGate);
+	REQUIRE(A.GetVoice(1).bGate);
+	REQUIRE_FALSE(A.GetVoice(2).bGate);
+}
+
+TEST_CASE("VoiceAllocator: Process emits voice 0 state on standard outputs (3E-3 stub)", "[voicealloc]")
+{
+	FVoiceAllocator A;
+	A.Prepare(48000.0);
+	A.HandleNoteOn(69, 0.7f); // A4 → 440 Hz
+
+	FProcessContext Ctx;
+	A.Process(Ctx);
+
+	const float* Gate = A.GetOutputBuffer(FVoiceAllocator::Output_Gate);
+	const float* Freq = A.GetOutputBuffer(FVoiceAllocator::Output_Frequency);
+	const float* Vel = A.GetOutputBuffer(FVoiceAllocator::Output_Velocity);
+	const float* Note = A.GetOutputBuffer(FVoiceAllocator::Output_Note);
+
+	REQUIRE(Gate[0] == 1.0f);
+	REQUIRE_THAT(Freq[0], Catch::Matchers::WithinAbs(440.0f, 1e-3f));
+	REQUIRE_THAT(Vel[0], Catch::Matchers::WithinAbs(0.7f, 1e-6f));
+	REQUIRE_THAT(Note[0], Catch::Matchers::WithinAbs(69.0f, 1e-6f));
+}
+
+TEST_CASE("VoiceAllocator: Clone() returns nullptr (non-cloneable source)", "[voicealloc][clone]")
+{
+	FVoiceAllocator A;
+	REQUIRE(A.Clone() == nullptr);
+}
+
+TEST_CASE("VoiceAllocator: graph compile populates Allocators and routes NoteOn", "[voicealloc][graph]")
+{
+	// Allocator (poly Control) → Oscillator → Output. The Oscillator must be
+	// marked per-voice for the Control link to validate (poly → mono Control is
+	// rejected by the partition step). Audio path Osc → Out is per-voice → mono
+	// audio, which the compiler handles via a synthesised voice mixer.
+	FGraphModel Model;
+	auto Alloc = std::make_shared<NodeSynth::FVoiceAllocator>();
+	auto Osc = std::make_shared<NodeSynth::FOscillator>();
+	auto Out = std::make_shared<FOutput>();
+	const FNodeId AllocId = Model.AddNode(Alloc);
+	const FNodeId OscId = Model.AddNode(Osc);
+	const FNodeId OutId = Model.AddNode(Out);
+	REQUIRE(Model.SetNodePerVoice(OscId, true));
+	REQUIRE(Model.AddLink(AllocId, FVoiceAllocator::Output_Frequency,
+		OscId, NodeSynth::FOscillator::Input_Frequency) != 0);
+	REQUIRE(Model.AddLink(OscId, 0, OutId, 0) != 0);
+
+	auto Snapshot = CompileWith(Model);
+	REQUIRE(Snapshot->Allocators.size() == 1);
+	REQUIRE(Snapshot->Allocators[0] == Alloc.get());
+
+	FAudioCommandRing Ring;
+	Ring.Push(FAudioCommand::MakeNoteOn(60, 1.0f));
+	Ring.Push(FAudioCommand::MakeNoteOn(64, 1.0f));
+	Snapshot->DrainCommands(Ring);
+
+	REQUIRE(Alloc->GetVoice(0).bGate);
+	REQUIRE(Alloc->GetVoice(0).Note == 60);
+	REQUIRE(Alloc->GetVoice(1).bGate);
+	REQUIRE(Alloc->GetVoice(1).Note == 64);
+}
+
+TEST_CASE("VoiceAllocator: DrainCommands broadcasts NoteOn / NoteOff to every allocator in snapshot", "[voicealloc][graph]")
+{
+	// Sidestep reachability + Output-singleton constraints: build a snapshot
+	// directly with two allocators in its Allocators list, push events through
+	// the ring, drain. Verifies the broadcast loop in DrainCommands itself.
+	auto AllocA = std::make_shared<FVoiceAllocator>();
+	auto AllocB = std::make_shared<FVoiceAllocator>();
+	AllocA->Prepare(48000.0);
+	AllocB->Prepare(48000.0);
+
+	auto Snapshot = std::make_shared<FAudioGraph>();
+	Snapshot->OrderedNodes.push_back(AllocA);
+	Snapshot->OrderedNodes.push_back(AllocB);
+	Snapshot->Allocators.push_back(AllocA.get());
+	Snapshot->Allocators.push_back(AllocB.get());
+
+	FAudioCommandRing Ring;
+	Ring.Push(FAudioCommand::MakeNoteOn(72, 1.0f));
+	Ring.Push(FAudioCommand::MakeNoteOn(76, 1.0f));
+	Snapshot->DrainCommands(Ring);
+
+	// Both allocators should have voices for both notes.
+	REQUIRE(AllocA->GetVoice(0).Note == 72);
+	REQUIRE(AllocA->GetVoice(0).bGate);
+	REQUIRE(AllocA->GetVoice(1).Note == 76);
+	REQUIRE(AllocB->GetVoice(0).Note == 72);
+	REQUIRE(AllocB->GetVoice(0).bGate);
+	REQUIRE(AllocB->GetVoice(1).Note == 76);
+
+	Ring.Push(FAudioCommand::MakeNoteOff(72));
+	Snapshot->DrainCommands(Ring);
+	REQUIRE_FALSE(AllocA->GetVoice(0).bGate);
+	REQUIRE_FALSE(AllocB->GetVoice(0).bGate);
+}
+
+TEST_CASE("VoiceAllocator: only reachable allocators land in the snapshot", "[voicealloc][graph]")
+{
+	FGraphModel Model;
+	auto Reachable = std::make_shared<FVoiceAllocator>();
+	auto Unreachable = std::make_shared<FVoiceAllocator>();
+	auto Osc = std::make_shared<NodeSynth::FOscillator>();
+	auto Out = std::make_shared<FOutput>();
+	const FNodeId ReachId = Model.AddNode(Reachable);
+	const FNodeId UnreachId = Model.AddNode(Unreachable);
+	const FNodeId OscId = Model.AddNode(Osc);
+	const FNodeId OutId = Model.AddNode(Out);
+	(void)UnreachId;
+	REQUIRE(Model.SetNodePerVoice(OscId, true));
+	REQUIRE(Model.AddLink(ReachId, FVoiceAllocator::Output_Frequency,
+		OscId, NodeSynth::FOscillator::Input_Frequency) != 0);
+	REQUIRE(Model.AddLink(OscId, 0, OutId, 0) != 0);
+
+	auto Snapshot = CompileWith(Model);
+	REQUIRE(Snapshot->Allocators.size() == 1);
+	REQUIRE(Snapshot->Allocators[0] == Reachable.get());
+}
+
+TEST_CASE("VoiceAllocator: NoteOff for a never-pressed note is a no-op", "[voicealloc]")
+{
+	FVoiceAllocator A;
+	A.Prepare(48000.0);
+	A.HandleNoteOn(60, 0.8f);
+	A.HandleNoteOff(72); // never pressed
+	REQUIRE(A.GetVoice(0).bGate);
+	REQUIRE(A.GetVoice(0).Note == 60);
+}

@@ -18,14 +18,16 @@ namespace NodeSynth
 	enum class EAudioCommand : uint8_t
 	{
 		SetParam,
+		NoteOn,    // ParamIndex = MIDI note 0..127, Value = velocity 0..1
+		NoteOff,   // ParamIndex = MIDI note 0..127, Value ignored
 	};
 
 	struct FAudioCommand
 	{
 		EAudioCommand Type = EAudioCommand::SetParam;
-		FNodeId NodeId = 0;
-		uint32_t ParamIndex = 0;
-		float Value = 0.0f;
+		FNodeId NodeId = 0;        // ignored for NoteOn / NoteOff (broadcast)
+		uint32_t ParamIndex = 0;   // for note events: the MIDI note number
+		float Value = 0.0f;        // for SetParam: the param value; for NoteOn: velocity 0..1
 
 		static FAudioCommand MakeSetParam(FNodeId InNodeId, uint32_t InParamIndex, float InValue)
 		{
@@ -34,6 +36,26 @@ namespace NodeSynth
 			Cmd.NodeId = InNodeId;
 			Cmd.ParamIndex = InParamIndex;
 			Cmd.Value = InValue;
+			return Cmd;
+		}
+
+		static FAudioCommand MakeNoteOn(uint8_t Note, float Velocity)
+		{
+			FAudioCommand Cmd;
+			Cmd.Type = EAudioCommand::NoteOn;
+			Cmd.NodeId = 0;
+			Cmd.ParamIndex = Note;
+			Cmd.Value = Velocity;
+			return Cmd;
+		}
+
+		static FAudioCommand MakeNoteOff(uint8_t Note)
+		{
+			FAudioCommand Cmd;
+			Cmd.Type = EAudioCommand::NoteOff;
+			Cmd.NodeId = 0;
+			Cmd.ParamIndex = Note;
+			Cmd.Value = 0.0f;
 			return Cmd;
 		}
 	};
@@ -102,6 +124,24 @@ namespace NodeSynth
 			if (Ring != nullptr)
 			{
 				Ring->Push(FAudioCommand::MakeSetParam(NodeId, ParamIndex, Value));
+			}
+		}
+
+		// Note events broadcast to every voice allocator in the snapshot — the
+		// NodeId on this sink is ignored.
+		void NoteOn(uint8_t Note, float Velocity) const
+		{
+			if (Ring != nullptr)
+			{
+				Ring->Push(FAudioCommand::MakeNoteOn(Note, Velocity));
+			}
+		}
+
+		void NoteOff(uint8_t Note) const
+		{
+			if (Ring != nullptr)
+			{
+				Ring->Push(FAudioCommand::MakeNoteOff(Note));
 			}
 		}
 	};

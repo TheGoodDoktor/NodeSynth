@@ -198,7 +198,7 @@ namespace NodeSynth
 		// slider's numeric edit. Mouse interaction always remains active.
 		if (!bAcceptKeys && !bMouseDown)
 		{
-			Kbd.ReleaseAll();
+			Kbd.ReleaseAll(Sink);
 		}
 		else
 		{
@@ -207,11 +207,11 @@ namespace NodeSynth
 				const bool bIsHeld = Kbd.IsKeyHeld(Semi);
 				if (DesiredHold[Semi] && !bIsHeld)
 				{
-					Kbd.PressNote(Semi);
+					Kbd.PressNote(Semi, Sink);
 				}
 				else if (!DesiredHold[Semi] && bIsHeld)
 				{
-					Kbd.ReleaseNote(Semi);
+					Kbd.ReleaseNote(Semi, Sink);
 				}
 			}
 		}

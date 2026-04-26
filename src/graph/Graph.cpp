@@ -2,8 +2,14 @@
 
 #include <algorithm>
 #include <functional>
+#include <map>
 #include <string>
 #include <unordered_set>
+#include <utility>
+
+#include "dsp/MidiInput.h"
+#include "dsp/VoiceAllocator.h"
+#include "dsp/internal/VoiceMixer.h"
 
 namespace NodeSynth
 {
@@ -169,7 +175,7 @@ namespace NodeSynth
 	{
 		auto Graph = std::make_shared<FAudioGraph>();
 
-		// Locate the output sink. Phase 1 supports one; extras are ignored.
+		// -- Step 1: locate the output sink --------------------------------------
 		FNodeRecord* OutputRec = nullptr;
 		for (auto& [Id, Rec] : Nodes)
 		{
@@ -179,16 +185,14 @@ namespace NodeSynth
 				break;
 			}
 		}
-
 		if (!OutputRec)
 		{
 			return Graph;
 		}
 
-		// Reverse DFS from the output, producing a producers-first order.
+		// -- Step 2: reverse-DFS from the output, producers-first order of ids --
 		std::unordered_set<FNodeId> Visited;
-		std::vector<std::shared_ptr<INode>> Order;
-
+		std::vector<FNodeId> Order;
 		std::function<void(FNodeId)> Visit = [&](FNodeId Id)
 		{
 			if (!Visited.insert(Id).second)
@@ -202,56 +206,273 @@ namespace NodeSynth
 					Visit(L.FromNode);
 				}
 			}
-			auto It = Nodes.find(Id);
-			if (It != Nodes.end())
+			if (Nodes.count(Id) > 0)
 			{
-				Order.push_back(It->second.Node);
+				Order.push_back(Id);
 			}
 		};
-
 		Visit(OutputRec->Id);
 
-		// Clear all input pointers so disconnected inputs read null (nodes handle it).
-		for (auto& Node : Order)
+		// -- Step 3: classify each visited node ----------------------------------
+		enum class EClass : uint8_t { Mono, PerVoice, VoiceAlloc };
+		std::unordered_map<FNodeId, EClass> Class;
+		Class.reserve(Order.size());
+		for (FNodeId Id : Order)
 		{
-			const uint32_t NumInputs = static_cast<uint32_t>(Node->GetInputPorts().size());
-			for (uint32_t I = 0; I < NumInputs; ++I)
+			const FNodeRecord& Rec = Nodes.at(Id);
+			if (dynamic_cast<FVoiceAllocator*>(Rec.Node.get()))
 			{
-				Node->SetInputBuffer(I, nullptr);
+				Class[Id] = EClass::VoiceAlloc;
 			}
-			Node->Prepare(SampleRate);
+			else if (Rec.bPerVoice)
+			{
+				Class[Id] = EClass::PerVoice;
+			}
+			else
+			{
+				Class[Id] = EClass::Mono;
+			}
 		}
 
-		// Route: for each link, resolve the upstream output buffer and hand it to the downstream input.
+		auto IsPolyClass = [](EClass C) {
+			return C == EClass::PerVoice || C == EClass::VoiceAlloc;
+		};
+
+		// -- Step 4: validate edges. Per-voice → mono Control is rejected.
+		// Returns an empty graph on validation failure; the audio thread sees
+		// silence until the user fixes the routing. UI surfaces the error
+		// via the empty-snapshot fallback.
 		for (const FLink& L : Links)
 		{
-			auto FromIt = Nodes.find(L.FromNode);
-			auto ToIt = Nodes.find(L.ToNode);
-			if (FromIt == Nodes.end() || ToIt == Nodes.end())
-			{
-				continue;
-			}
-			// Only connect if both nodes are part of the compiled subgraph
-			// (unreachable branches are skipped entirely).
 			if (Visited.count(L.FromNode) == 0 || Visited.count(L.ToNode) == 0)
 			{
 				continue;
 			}
-			float* UpstreamBuffer = FromIt->second.Node->GetOutputBuffer(L.FromPort);
-			ToIt->second.Node->SetInputBuffer(L.ToPort, UpstreamBuffer);
+			const EClass FromC = Class.at(L.FromNode);
+			const EClass ToC = Class.at(L.ToNode);
+			if (IsPolyClass(FromC) && ToC == EClass::Mono)
+			{
+				const auto FromPorts = Nodes.at(L.FromNode).Node->GetOutputPorts();
+				if (L.FromPort < FromPorts.size()
+					&& FromPorts[L.FromPort].Type == EPortType::Control)
+				{
+					std::fprintf(stderr,
+						"Compile: rejected per-voice → mono Control link (%llu:%u → %llu:%u). "
+						"Mark the destination per-voice or break the link.\n",
+						static_cast<unsigned long long>(L.FromNode), L.FromPort,
+						static_cast<unsigned long long>(L.ToNode), L.ToPort);
+					return std::make_shared<FAudioGraph>();
+				}
+			}
 		}
 
-		Graph->OrderedNodes = std::move(Order);
+		// -- Step 5: clone per-voice nodes ---------------------------------------
+		constexpr size_t NumVoices = FVoiceAllocator::MaxVoices;
+		std::unordered_map<FNodeId, std::vector<std::shared_ptr<INode>>> Clones;
+		for (FNodeId Id : Order)
+		{
+			if (Class.at(Id) != EClass::PerVoice)
+			{
+				continue;
+			}
+			std::vector<std::shared_ptr<INode>> VoiceClones;
+			VoiceClones.reserve(NumVoices);
+			for (size_t V = 0; V < NumVoices; ++V)
+			{
+				auto Clone = Nodes.at(Id).Node->Clone();
+				if (!Clone)
+				{
+					std::fprintf(stderr,
+						"Compile: per-voice flag set on a non-cloneable node id %llu — "
+						"skipping per-voice path, treating as mono.\n",
+						static_cast<unsigned long long>(Id));
+					Class[Id] = EClass::Mono;
+					VoiceClones.clear();
+					break;
+				}
+				VoiceClones.push_back(std::move(Clone));
+			}
+			if (!VoiceClones.empty())
+			{
+				Clones.emplace(Id, std::move(VoiceClones));
+			}
+		}
+
+		// -- Step 6: synthesize voice mixers for per-voice → mono Audio links ---
+		// One mixer per (FromNode, FromPort) — multiple destinations can share.
+		std::map<std::pair<FNodeId, uint32_t>, std::shared_ptr<Internal::FVoiceMixer>> Mixers;
+		auto GetVoiceSourceBuffer = [&](FNodeId FromId, uint32_t FromPort, size_t VoiceIdx) -> float*
+		{
+			const EClass FromC = Class.at(FromId);
+			if (FromC == EClass::VoiceAlloc)
+			{
+				auto* Alloc = static_cast<FVoiceAllocator*>(Nodes.at(FromId).Node.get());
+				return Alloc->GetVoiceOutputBuffer(FromPort, VoiceIdx);
+			}
+			if (FromC == EClass::PerVoice)
+			{
+				return Clones.at(FromId)[VoiceIdx]->GetOutputBuffer(FromPort);
+			}
+			return nullptr;
+		};
+
+		for (const FLink& L : Links)
+		{
+			if (Visited.count(L.FromNode) == 0 || Visited.count(L.ToNode) == 0)
+			{
+				continue;
+			}
+			const EClass FromC = Class.at(L.FromNode);
+			const EClass ToC = Class.at(L.ToNode);
+			if (!IsPolyClass(FromC) || ToC != EClass::Mono)
+			{
+				continue;
+			}
+			const auto FromPorts = Nodes.at(L.FromNode).Node->GetOutputPorts();
+			if (L.FromPort >= FromPorts.size()
+				|| FromPorts[L.FromPort].Type != EPortType::Audio)
+			{
+				continue;  // Control was rejected in Step 4
+			}
+			auto Key = std::make_pair(L.FromNode, L.FromPort);
+			if (Mixers.find(Key) == Mixers.end())
+			{
+				auto Mixer = std::make_shared<Internal::FVoiceMixer>();
+				Mixer->Prepare(SampleRate);
+				for (size_t V = 0; V < NumVoices; ++V)
+				{
+					Mixer->SetInputBuffer(static_cast<uint32_t>(V),
+						GetVoiceSourceBuffer(L.FromNode, L.FromPort, V));
+				}
+				Mixers.emplace(Key, std::move(Mixer));
+			}
+		}
+
+		// -- Step 7: build OrderedNodes with clones substituted and mixers
+		// inserted right after the per-voice nodes whose audio they sum.
+		std::vector<std::shared_ptr<INode>> OrderedNodes;
+		for (FNodeId Id : Order)
+		{
+			const EClass C = Class.at(Id);
+			if (C == EClass::PerVoice && Clones.count(Id) > 0)
+			{
+				for (auto& Clone : Clones.at(Id))
+				{
+					Clone->Prepare(SampleRate);
+					const uint32_t NumIn = static_cast<uint32_t>(Clone->GetInputPorts().size());
+					for (uint32_t I = 0; I < NumIn; ++I)
+					{
+						Clone->SetInputBuffer(I, nullptr);
+					}
+					OrderedNodes.push_back(Clone);
+				}
+			}
+			else
+			{
+				auto& Node = Nodes.at(Id).Node;
+				Node->Prepare(SampleRate);
+				const uint32_t NumIn = static_cast<uint32_t>(Node->GetInputPorts().size());
+				for (uint32_t I = 0; I < NumIn; ++I)
+				{
+					Node->SetInputBuffer(I, nullptr);
+				}
+				OrderedNodes.push_back(Node);
+			}
+
+			// Append any mixers sourced from this node so they run after its
+			// (now-completed) per-voice clones and before the mono consumer
+			// they feed (which appears later in Order).
+			for (auto& [Key, Mixer] : Mixers)
+			{
+				if (Key.first == Id)
+				{
+					OrderedNodes.push_back(Mixer);
+				}
+			}
+		}
+
+		// -- Step 8: wire all links ----------------------------------------------
+		for (const FLink& L : Links)
+		{
+			if (Visited.count(L.FromNode) == 0 || Visited.count(L.ToNode) == 0)
+			{
+				continue;
+			}
+			const EClass FromC = Class.at(L.FromNode);
+			const EClass ToC = Class.at(L.ToNode);
+			const bool bFromPoly = IsPolyClass(FromC);
+			const bool bToPoly = (ToC == EClass::PerVoice && Clones.count(L.ToNode) > 0);
+
+			if (!bFromPoly && !bToPoly)
+			{
+				// Mono → Mono.
+				float* Buf = Nodes.at(L.FromNode).Node->GetOutputBuffer(L.FromPort);
+				Nodes.at(L.ToNode).Node->SetInputBuffer(L.ToPort, Buf);
+			}
+			else if (!bFromPoly && bToPoly)
+			{
+				// Mono → PerVoice: broadcast.
+				float* Buf = Nodes.at(L.FromNode).Node->GetOutputBuffer(L.FromPort);
+				for (auto& Clone : Clones.at(L.ToNode))
+				{
+					Clone->SetInputBuffer(L.ToPort, Buf);
+				}
+			}
+			else if (bFromPoly && bToPoly)
+			{
+				// PerVoice / VoiceAlloc → PerVoice: paired voice-i to voice-i.
+				for (size_t V = 0; V < NumVoices; ++V)
+				{
+					Clones.at(L.ToNode)[V]->SetInputBuffer(L.ToPort,
+						GetVoiceSourceBuffer(L.FromNode, L.FromPort, V));
+				}
+			}
+			else
+			{
+				// PerVoice / VoiceAlloc → Mono Audio: route through the mixer.
+				auto Key = std::make_pair(L.FromNode, L.FromPort);
+				auto It = Mixers.find(Key);
+				if (It != Mixers.end())
+				{
+					Nodes.at(L.ToNode).Node->SetInputBuffer(L.ToPort,
+						It->second->GetOutputBuffer(0));
+				}
+			}
+		}
+
+		Graph->OrderedNodes = std::move(OrderedNodes);
 		Graph->OutputNode = OutputRec->Node;
 
-		// Build the id-to-node lookup so the audio-thread command drain can find
-		// nodes by FNodeId without scanning OrderedNodes.
-		Graph->NodeById.reserve(Graph->OrderedNodes.size());
-		for (const auto& [Id, Rec] : Nodes)
+		// Build NodeById + Allocators. NodeById maps original ids only — clones
+		// don't get their own ids; SetParam fan-out to per-voice clones is a
+		// follow-on (see CLAUDE.md). For now, SetParam on a per-voice node
+		// updates the original (which isn't in OrderedNodes for per-voice nodes).
+		Graph->NodeById.reserve(Order.size());
+		for (FNodeId Id : Order)
 		{
-			if (Visited.count(Id) > 0)
+			FAudioGraph::FNodeEntry Entry;
+			Entry.Primary = Nodes.at(Id).Node.get();
+			if (auto It = Clones.find(Id); It != Clones.end())
 			{
-				Graph->NodeById.emplace(Id, Rec.Node.get());
+				Entry.Voices.reserve(It->second.size());
+				for (auto& Clone : It->second)
+				{
+					Entry.Voices.push_back(Clone.get());
+				}
+			}
+			Graph->NodeById.emplace(Id, std::move(Entry));
+			if (auto* Alloc = dynamic_cast<FVoiceAllocator*>(Nodes.at(Id).Node.get()))
+			{
+				Graph->Allocators.push_back(Alloc);
+			}
+		}
+
+		// Hand each FMidiInput the allocator list for direct in-block dispatch.
+		for (FNodeId Id : Order)
+		{
+			if (auto* Midi = dynamic_cast<FMidiInput*>(Nodes.at(Id).Node.get()))
+			{
+				Midi->SetVoiceAllocators(Graph->Allocators);
 			}
 		}
 
@@ -263,16 +484,41 @@ namespace NodeSynth
 		FAudioCommand Cmd;
 		while (Ring.Pop(Cmd))
 		{
-			auto It = NodeById.find(Cmd.NodeId);
-			if (It == NodeById.end())
-			{
-				continue;  // node not in this snapshot — UI thread already wrote the atomic
-			}
 			switch (Cmd.Type)
 			{
 				case EAudioCommand::SetParam:
-					It->second->SetParamValue(Cmd.ParamIndex, Cmd.Value);
+				{
+					auto It = NodeById.find(Cmd.NodeId);
+					if (It != NodeById.end())
+					{
+						It->second.Primary->SetParamValue(Cmd.ParamIndex, Cmd.Value);
+						// Fan out to per-voice clones so slider drags on a
+						// per-voice node take audible effect on all voices.
+						for (INode* Voice : It->second.Voices)
+						{
+							Voice->SetParamValue(Cmd.ParamIndex, Cmd.Value);
+						}
+					}
 					break;
+				}
+				case EAudioCommand::NoteOn:
+				{
+					const uint8_t Note = static_cast<uint8_t>(Cmd.ParamIndex);
+					for (FVoiceAllocator* Alloc : Allocators)
+					{
+						Alloc->HandleNoteOn(Note, Cmd.Value);
+					}
+					break;
+				}
+				case EAudioCommand::NoteOff:
+				{
+					const uint8_t Note = static_cast<uint8_t>(Cmd.ParamIndex);
+					for (FVoiceAllocator* Alloc : Allocators)
+					{
+						Alloc->HandleNoteOff(Note);
+					}
+					break;
+				}
 			}
 		}
 	}

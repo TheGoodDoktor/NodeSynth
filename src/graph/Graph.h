@@ -9,6 +9,8 @@
 
 namespace NodeSynth
 {
+	class FVoiceAllocator;
+
 	struct FNodeRecord
 	{
 		FNodeId Id = 0;
@@ -39,11 +41,20 @@ namespace NodeSynth
 		std::vector<std::shared_ptr<INode>> OrderedNodes;  // topological order (producers first)
 		std::shared_ptr<INode> OutputNode;                 // null until the user adds one
 
-		// Id → node lookup populated at compile time. Used by DrainCommands to
-		// route incoming SetParam (and future) commands to the right node.
-		// Held by raw INode* — the shared_ptrs in OrderedNodes keep the nodes
-		// alive for the lifetime of this snapshot.
-		std::unordered_map<FNodeId, INode*> NodeById;
+		// Id → node entry populated at compile time. Primary is the model's
+		// original node (the one with the user's atomic param state); Voices
+		// holds per-voice clones so SetParam can fan out to every clone of a
+		// per-voice node. Empty Voices for global nodes.
+		struct FNodeEntry
+		{
+			INode* Primary = nullptr;
+			std::vector<INode*> Voices;
+		};
+		std::unordered_map<FNodeId, FNodeEntry> NodeById;
+
+		// Voice allocators in this snapshot. NoteOn / NoteOff commands are
+		// broadcast to every entry. Populated alongside NodeById in Compile.
+		std::vector<FVoiceAllocator*> Allocators;
 
 		// Drains all pending commands from the ring and dispatches them. RT-safe:
 		// the ring is lock-free and SetParamValue stores into atomics. Commands

@@ -6,6 +6,7 @@
 
 #include "dsp/Node.h"
 #include "dsp/Smoother.h"
+#include "graph/AudioCommand.h"
 
 namespace NodeSynth
 {
@@ -146,7 +147,10 @@ namespace NodeSynth
 		// -- UI-thread interface -------------------------------------------------
 		// SemitoneFromBottomC: 0..12 (low C through high C of the displayed octave).
 		// Mapped to MIDI via the current Octave param: MIDI = 12 * (Octave + 1) + Semi.
-		void PressNote(int32_t SemitoneFromBottomC)
+		// Sink is optional; when non-null, NoteOn / NoteOff commands are pushed
+		// onto the audio command ring so any FVoiceAllocator in the snapshot
+		// receives them. Tests pass an empty sink to skip the queue.
+		void PressNote(int32_t SemitoneFromBottomC, const FCommandSink& Sink = {})
 		{
 			const int32_t MidiNote = SemitoneToMidi(SemitoneFromBottomC);
 			if (MidiNote < 0 || MidiNote > 127)
@@ -173,14 +177,20 @@ namespace NodeSynth
 
 			CurrentFreq.store(NoteToFrequency(Note), std::memory_order_relaxed);
 			bGate.store(true, std::memory_order_relaxed);
+
+			Sink.NoteOn(Note, Velocity.load(std::memory_order_relaxed));
 		}
 
-		void ReleaseNote(int32_t SemitoneFromBottomC)
+		void ReleaseNote(int32_t SemitoneFromBottomC, const FCommandSink& Sink = {})
 		{
+			uint8_t ReleasedNote = 0;
+			bool bFound = false;
 			for (size_t I = 0; I < NumHeldNotes; ++I)
 			{
 				if (HeldSemitones[I] == static_cast<int8_t>(SemitoneFromBottomC))
 				{
+					ReleasedNote = HeldNotes[I];
+					bFound = true;
 					for (size_t J = I + 1; J < NumHeldNotes; ++J)
 					{
 						HeldNotes[J - 1] = HeldNotes[J];
@@ -199,10 +209,19 @@ namespace NodeSynth
 				const uint8_t Top = HeldNotes[NumHeldNotes - 1];
 				CurrentFreq.store(NoteToFrequency(Top), std::memory_order_relaxed);
 			}
+
+			if (bFound)
+			{
+				Sink.NoteOff(ReleasedNote);
+			}
 		}
 
-		void ReleaseAll()
+		void ReleaseAll(const FCommandSink& Sink = {})
 		{
+			for (size_t I = 0; I < NumHeldNotes; ++I)
+			{
+				Sink.NoteOff(HeldNotes[I]);
+			}
 			NumHeldNotes = 0;
 			bGate.store(false, std::memory_order_relaxed);
 		}

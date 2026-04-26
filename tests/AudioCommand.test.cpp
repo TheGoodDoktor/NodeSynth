@@ -106,7 +106,7 @@ TEST_CASE("FAudioGraph::DrainCommands routes SetParam to the right node", "[comm
 
 	Snapshot->DrainCommands(Ring);
 
-	auto* Gain = dynamic_cast<FGain*>(Snapshot->NodeById.at(GainId));
+	auto* Gain = dynamic_cast<FGain*>(Snapshot->NodeById.at(GainId).Primary);
 	REQUIRE(Gain != nullptr);
 	REQUIRE(Gain->GetParamValue(FGain::Param_Gain) == 0.25f);
 }
@@ -126,7 +126,7 @@ TEST_CASE("FAudioGraph::DrainCommands silently drops unknown node ids", "[comman
 
 	Snapshot->DrainCommands(Ring);
 
-	auto* Gain = dynamic_cast<FGain*>(Snapshot->NodeById.at(GainId));
+	auto* Gain = dynamic_cast<FGain*>(Snapshot->NodeById.at(GainId).Primary);
 	REQUIRE(Gain != nullptr);
 	REQUIRE(Gain->GetParamValue(FGain::Param_Gain) == 0.5f);
 	REQUIRE(Ring.IsEmpty()); // unknown ids are popped, not requeued

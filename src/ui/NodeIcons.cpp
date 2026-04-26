@@ -272,6 +272,30 @@ namespace NodeSynth
 			Draw->AddPolyline(Pts, 7, Col, 0, 1.5f);
 		}
 
+		void DrawVoiceAllocatorIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Fan-out: one input on the left branching to four parallel outputs.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.18f;
+			const float R = Max.x - W * 0.10f;
+			const float Cy = (Min.y + Max.y) * 0.5f;
+			const float TopY = Min.y + H * 0.20f;
+			const float BotY = Max.y - H * 0.20f;
+			const float Mid1 = Cy - (Cy - TopY) * 0.45f;
+			const float Mid2 = Cy + (BotY - Cy) * 0.45f;
+
+			// Stem
+			Draw->AddLine(ImVec2(Min.x + W * 0.05f, Cy), ImVec2(L, Cy), Col, 1.5f);
+			// Vertical riser
+			Draw->AddLine(ImVec2(L, TopY), ImVec2(L, BotY), Col, 1.5f);
+			// Four horizontal branches to the right edge
+			Draw->AddLine(ImVec2(L, TopY), ImVec2(R, TopY), Col, 1.5f);
+			Draw->AddLine(ImVec2(L, Mid1), ImVec2(R, Mid1), Col, 1.5f);
+			Draw->AddLine(ImVec2(L, Mid2), ImVec2(R, Mid2), Col, 1.5f);
+			Draw->AddLine(ImVec2(L, BotY), ImVec2(R, BotY), Col, 1.5f);
+		}
+
 		void DrawDefaultIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
 		{
 			// Generic node: a small square outline.
@@ -347,6 +371,10 @@ namespace NodeSynth
 		else if (std::strcmp(TypeName, "LFO") == 0)
 		{
 			DrawLfoIcon(Draw, Min, Max, ColMath);
+		}
+		else if (std::strcmp(TypeName, "VoiceAllocator") == 0)
+		{
+			DrawVoiceAllocatorIcon(Draw, Min, Max, ColInput);
 		}
 		else
 		{

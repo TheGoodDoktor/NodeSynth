@@ -17,6 +17,7 @@
 #include "dsp/Svf.h"
 #include "dsp/Vca.h"
 #include "dsp/VirtualKeyboard.h"
+#include "dsp/VoiceAllocator.h"
 
 namespace NodeSynth
 {
@@ -126,6 +127,15 @@ namespace NodeSynth
 				"Sync input resets phase on rising edge — leave disconnected for\n"
 				"free-running. Use a Scale node to remap to a unipolar range.",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FLfo>(); },
+			},
+			{
+				"VoiceAllocator", "Voice Allocator",
+				"Polyphonic voice allocator. Consumes NoteOn / NoteOff events from\n"
+				"the audio command queue (or directly from FMidiInput) and tracks\n"
+				"per-voice gate, frequency, velocity, and note number.\n"
+				"Mark downstream synthesis nodes per-voice (right-click → Per-voice)\n"
+				"so the compiler clones them per voice in 3E-4.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FVoiceAllocator>(); },
 			},
 		};
 		return Registry;

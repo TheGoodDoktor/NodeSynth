@@ -1,4 +1,5 @@
 #include "dsp/VirtualKeyboard.h"
+#include "graph/AudioCommand.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -181,4 +182,55 @@ TEST_CASE("VirtualKeyboard: out-of-range MIDI presses are silently dropped", "[V
 	// Forced out-of-range via direct semitone overflow.
 	Kbd.PressNote(20); // MIDI = 12 * 9 + 20 = 128 → dropped
 	REQUIRE(Kbd.GetNumHeldNotes() == 1);
+}
+
+TEST_CASE("VirtualKeyboard: PressNote / ReleaseNote push commands through the sink", "[VirtualKeyboard][voicealloc]")
+{
+	NodeSynth::FAudioCommandRing Ring;
+	NodeSynth::FCommandSink Sink{ &Ring, 0 };
+
+	FVirtualKeyboard Kbd;
+	Kbd.Prepare(48000.0);
+	Kbd.SetParamValue(FVirtualKeyboard::Param_Octave, 4.0f); // C4 = MIDI 60
+
+	Kbd.PressNote(0, Sink); // bottom C → MIDI 60
+	NodeSynth::FAudioCommand Cmd;
+	REQUIRE(Ring.Pop(Cmd));
+	REQUIRE(Cmd.Type == NodeSynth::EAudioCommand::NoteOn);
+	REQUIRE(Cmd.ParamIndex == 60);
+
+	Kbd.ReleaseNote(0, Sink);
+	REQUIRE(Ring.Pop(Cmd));
+	REQUIRE(Cmd.Type == NodeSynth::EAudioCommand::NoteOff);
+	REQUIRE(Cmd.ParamIndex == 60);
+	REQUIRE(Ring.IsEmpty());
+}
+
+TEST_CASE("VirtualKeyboard: ReleaseAll pushes a NoteOff for every held note", "[VirtualKeyboard][voicealloc]")
+{
+	NodeSynth::FAudioCommandRing Ring;
+	NodeSynth::FCommandSink Sink{ &Ring, 0 };
+
+	FVirtualKeyboard Kbd;
+	Kbd.Prepare(48000.0);
+	Kbd.SetParamValue(FVirtualKeyboard::Param_Octave, 4.0f);
+
+	Kbd.PressNote(0, Sink);
+	Kbd.PressNote(4, Sink);
+	Kbd.PressNote(7, Sink);
+	// Drain those NoteOns; we only care about the ReleaseAll burst.
+	NodeSynth::FAudioCommand Tmp;
+	while (Ring.Pop(Tmp)) {}
+
+	Kbd.ReleaseAll(Sink);
+
+	int NoteOffs = 0;
+	while (Ring.Pop(Tmp))
+	{
+		if (Tmp.Type == NodeSynth::EAudioCommand::NoteOff)
+		{
+			++NoteOffs;
+		}
+	}
+	REQUIRE(NoteOffs == 3);
 }

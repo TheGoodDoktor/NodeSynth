@@ -74,6 +74,15 @@ namespace NodeSynth
 		// free-function callback in MidiInput.cpp can reach it.
 		void OnMidiMessage(const unsigned char* Bytes, size_t Length);
 
+		// Set by FGraphModel::Compile so this input can dispatch real-MIDI
+		// note events to the snapshot's voice allocators directly on the audio
+		// thread (no ring round-trip). Pointers are valid for the lifetime of
+		// the compiled snapshot.
+		void SetVoiceAllocators(std::vector<class FVoiceAllocator*> InAllocators)
+		{
+			Allocators = std::move(InAllocators);
+		}
+
 	private:
 		void RefreshDeviceList();
 		void ReopenIfNeeded();
@@ -98,5 +107,8 @@ namespace NodeSynth
 		float CurrentFrequency = 440.0f;
 		float CurrentVelocity = 0.0f;
 		double SampleRate = 48000.0;
+
+		// Allocator dispatch list (audio-thread only; populated by Compile).
+		std::vector<class FVoiceAllocator*> Allocators;
 	};
 }

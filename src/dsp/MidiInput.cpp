@@ -5,6 +5,8 @@
 #include <cmath>
 #include <cstdio>
 
+#include "dsp/VoiceAllocator.h"
+
 namespace NodeSynth
 {
 	namespace
@@ -231,6 +233,15 @@ namespace NodeSynth
 				CurrentFrequency = NoteToFrequency(Event.Data1);
 				CurrentVelocity = static_cast<float>(Event.Data2) / 127.0f;
 				CurrentGate = 1.0f;
+
+				// Dispatch to voice allocators directly (we're already on the
+				// audio thread; routing through the audio command ring would
+				// add a producer and break its single-producer invariant).
+				const float Vel = static_cast<float>(Event.Data2) / 127.0f;
+				for (FVoiceAllocator* Alloc : Allocators)
+				{
+					Alloc->HandleNoteOn(Event.Data1, Vel);
+				}
 			}
 			else if (bNoteOff)
 			{
@@ -258,6 +269,11 @@ namespace NodeSynth
 					CurrentFrequency = NoteToFrequency(Top);
 					CurrentVelocity = static_cast<float>(HeldVelocities[NumHeldNotes - 1]) / 127.0f;
 					// Gate stays high — legato across held notes.
+				}
+
+				for (FVoiceAllocator* Alloc : Allocators)
+				{
+					Alloc->HandleNoteOff(Event.Data1);
 				}
 			}
 		}
