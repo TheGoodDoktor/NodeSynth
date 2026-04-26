@@ -95,9 +95,11 @@ namespace
 		auto GainNode = std::make_shared<FGain>();
 		auto Out = std::make_shared<FOutput>();
 
-		// Slim the per-voice oscillator's amplitude so 8 voices in unison
-		// don't clip the master output.
-		Osc->SetParamValue(FOscillator::Param_Amplitude, 0.12f);
+		// Master gain trimmed to ~1/8 so the 8-voice sum stays inside [-1, 1]
+		// even at sustain. The Oscillator's Amplitude param is overridden by
+		// the connected ADSR.Env, so attenuation has to live downstream of the
+		// per-voice mixer — this Gain node is exactly that.
+		GainNode->SetParamValue(FGain::Param_Gain, 0.15f);
 
 		Model.AddNode(Kbd, 60.0f, 60.0f);
 		const FNodeId AllocId = Model.AddNode(Alloc, 60.0f, 240.0f);
