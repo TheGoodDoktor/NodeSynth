@@ -19,6 +19,7 @@ namespace NodeSynth
 		constexpr ImU32 ColInput = IM_COL32(200, 150, 240, 255);   // MIDI, VirtualKbd
 		constexpr ImU32 ColSink = IM_COL32(255, 130, 130, 255);    // Output
 		constexpr ImU32 ColMath = IM_COL32(255, 220, 130, 255);    // Add/Mul/Scale/Const/S&H
+		constexpr ImU32 ColEffect = IM_COL32(180, 160, 230, 255);  // Delay / Reverb / Waveshaper
 
 		void DrawSineIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
 		{
@@ -272,6 +273,35 @@ namespace NodeSynth
 			Draw->AddPolyline(Pts, 7, Col, 0, 1.5f);
 		}
 
+		void DrawDelayIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Three echo "ticks" with diminishing height + a small return arrow
+			// underneath suggesting the feedback path.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.10f;
+			const float Bottom = Max.y - H * 0.30f;
+			const float Top1 = Min.y + H * 0.20f;  // tallest
+			const float Top2 = Min.y + H * 0.35f;
+			const float Top3 = Min.y + H * 0.50f;
+
+			const float X1 = L + W * 0.10f;
+			const float X2 = L + W * 0.40f;
+			const float X3 = L + W * 0.70f;
+
+			Draw->AddLine(ImVec2(X1, Bottom), ImVec2(X1, Top1), Col, 1.5f);
+			Draw->AddLine(ImVec2(X2, Bottom), ImVec2(X2, Top2), Col, 1.5f);
+			Draw->AddLine(ImVec2(X3, Bottom), ImVec2(X3, Top3), Col, 1.5f);
+
+			// Feedback arrow: arc from the rightmost tick back toward the left,
+			// approximated as two line segments.
+			const float ArcY = Bottom + H * 0.10f;
+			Draw->AddLine(ImVec2(X3, Bottom), ImVec2(X3, ArcY), Col, 1.2f);
+			Draw->AddLine(ImVec2(X3, ArcY), ImVec2(X1, ArcY), Col, 1.2f);
+			Draw->AddLine(ImVec2(X1, ArcY), ImVec2(X1 + 4.0f, ArcY - 3.0f), Col, 1.2f);
+			Draw->AddLine(ImVec2(X1, ArcY), ImVec2(X1 + 4.0f, ArcY + 3.0f), Col, 1.2f);
+		}
+
 		void DrawVoiceAllocatorIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
 		{
 			// Fan-out: one input on the left branching to four parallel outputs.
@@ -375,6 +405,10 @@ namespace NodeSynth
 		else if (std::strcmp(TypeName, "VoiceAllocator") == 0)
 		{
 			DrawVoiceAllocatorIcon(Draw, Min, Max, ColInput);
+		}
+		else if (std::strcmp(TypeName, "Delay") == 0)
+		{
+			DrawDelayIcon(Draw, Min, Max, ColEffect);
 		}
 		else
 		{

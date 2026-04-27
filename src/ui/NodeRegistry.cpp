@@ -5,6 +5,7 @@
 #include "dsp/Add.h"
 #include "dsp/Adsr.h"
 #include "dsp/Constant.h"
+#include "dsp/Delay.h"
 #include "dsp/Gain.h"
 #include "dsp/GateButton.h"
 #include "dsp/Lfo.h"
@@ -127,6 +128,15 @@ namespace NodeSynth
 				"Sync input resets phase on rising edge — leave disconnected for\n"
 				"free-running. Use a Scale node to remap to a unipolar range.",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FLfo>(); },
+			},
+			{
+				"Delay", "Delay",
+				"Feedback delay line. Audio input into a 2-second buffer; output is the\n"
+				"delayed signal. Feedback feeds the (tone-damped) delayed signal back\n"
+				"into the buffer for repeating echoes. Connect a Control input to the\n"
+				"Time port (e.g. an LFO) for chorus / flanger effects — values modulate\n"
+				"per-sample without smoothing.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FDelay>(); },
 			},
 			{
 				"VoiceAllocator", "Voice Allocator",
