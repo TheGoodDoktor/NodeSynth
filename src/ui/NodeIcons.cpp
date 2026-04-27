@@ -273,6 +273,24 @@ namespace NodeSynth
 			Draw->AddPolyline(Pts, 7, Col, 0, 1.5f);
 		}
 
+		void DrawReverbIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Three concentric arcs suggesting expanding ripples.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float Cx = Min.x + W * 0.30f;
+			const float Cy = (Min.y + Max.y) * 0.5f;
+			const float R0 = H * 0.18f;
+			const float R1 = H * 0.30f;
+			const float R2 = H * 0.42f;
+			Draw->PathArcTo(ImVec2(Cx, Cy), R0, -0.7f, 0.7f, 14);
+			Draw->PathStroke(Col, 0, 1.5f);
+			Draw->PathArcTo(ImVec2(Cx, Cy), R1, -0.7f, 0.7f, 16);
+			Draw->PathStroke(Col, 0, 1.5f);
+			Draw->PathArcTo(ImVec2(Cx, Cy), R2, -0.7f, 0.7f, 18);
+			Draw->PathStroke(Col, 0, 1.5f);
+		}
+
 		void DrawDelayIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
 		{
 			// Three echo "ticks" with diminishing height + a small return arrow
@@ -409,6 +427,10 @@ namespace NodeSynth
 		else if (std::strcmp(TypeName, "Delay") == 0)
 		{
 			DrawDelayIcon(Draw, Min, Max, ColEffect);
+		}
+		else if (std::strcmp(TypeName, "Reverb") == 0)
+		{
+			DrawReverbIcon(Draw, Min, Max, ColEffect);
 		}
 		else
 		{

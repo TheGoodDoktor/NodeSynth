@@ -13,6 +13,7 @@
 #include "dsp/Multiply.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
+#include "dsp/Reverb.h"
 #include "dsp/SampleHold.h"
 #include "dsp/Scale.h"
 #include "dsp/Svf.h"
@@ -137,6 +138,13 @@ namespace NodeSynth
 				"Time port (e.g. an LFO) for chorus / flanger effects — values modulate\n"
 				"per-sample without smoothing.",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FDelay>(); },
+			},
+			{
+				"Reverb", "Reverb",
+				"Freeverb-style reverb (8 lowpass-feedback combs + 4 allpass diffusers).\n"
+				"Mono in / mono out. Wet/dry mix is internal so the node drops in as\n"
+				"a passthrough effect without an external blender.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FReverb>(); },
 			},
 			{
 				"VoiceAllocator", "Voice Allocator",
