@@ -20,6 +20,7 @@
 #include "dsp/Vca.h"
 #include "dsp/VirtualKeyboard.h"
 #include "dsp/VoiceAllocator.h"
+#include "dsp/Waveshaper.h"
 
 namespace NodeSynth
 {
@@ -145,6 +146,14 @@ namespace NodeSynth
 				"Mono in / mono out. Wet/dry mix is internal so the node drops in as\n"
 				"a passthrough effect without an external blender.",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FReverb>(); },
+			},
+			{
+				"Waveshaper", "Waveshaper",
+				"Memoryless distortion. Drive (dB) pushes the signal into the\n"
+				"nonlinear region; the chosen Shape (tanh / hard / soft / fold)\n"
+				"determines the curve; Output (dB) compensates loudness.\n"
+				"Aliases at high drive — oversampling is a Phase 5 deliverable.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FWaveshaper>(); },
 			},
 			{
 				"VoiceAllocator", "Voice Allocator",

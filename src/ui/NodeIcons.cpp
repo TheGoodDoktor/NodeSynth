@@ -273,6 +273,25 @@ namespace NodeSynth
 			Draw->AddPolyline(Pts, 7, Col, 0, 1.5f);
 		}
 
+		void DrawWaveshaperIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Sigmoid-like S-curve: rises linearly through the middle, flattens
+			// near ±1 — the visual signature of a soft saturator.
+			constexpr int32_t Segments = 24;
+			ImVec2 Pts[Segments + 1];
+			const float Mid = (Min.y + Max.y) * 0.5f;
+			const float Amp = (Max.y - Min.y) * 0.32f;
+			for (int32_t I = 0; I <= Segments; ++I)
+			{
+				const float T = static_cast<float>(I) / Segments;       // 0..1
+				const float X = Min.x + T * (Max.x - Min.x);
+				const float Z = (T - 0.5f) * 6.0f;                      // -3..3
+				const float Y = Mid - Amp * std::tanh(Z);
+				Pts[I] = ImVec2(X, Y);
+			}
+			Draw->AddPolyline(Pts, Segments + 1, Col, 0, 1.5f);
+		}
+
 		void DrawReverbIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
 		{
 			// Three concentric arcs suggesting expanding ripples.
@@ -431,6 +450,10 @@ namespace NodeSynth
 		else if (std::strcmp(TypeName, "Reverb") == 0)
 		{
 			DrawReverbIcon(Draw, Min, Max, ColEffect);
+		}
+		else if (std::strcmp(TypeName, "Waveshaper") == 0)
+		{
+			DrawWaveshaperIcon(Draw, Min, Max, ColEffect);
 		}
 		else
 		{
