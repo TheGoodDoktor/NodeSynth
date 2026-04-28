@@ -10,6 +10,7 @@
 #include "dsp/MidiInput.h"
 #include "dsp/VoiceAllocator.h"
 #include "dsp/internal/VoiceMixer.h"
+#include "graph/EditHistory.h"
 
 namespace NodeSynth
 {
@@ -40,7 +41,20 @@ namespace NodeSynth
 			return 0;  // singleton FOutput enforcement
 		}
 		const FNodeId Id = NextNodeId++;
+		// Capture type name + per-voice flag (which is 0 at construction) so
+		// the undo entry can recreate the same node on Undo/Redo replay.
+		std::string TypeName = Node ? Node->GetTypeName() : std::string();
 		Nodes.emplace(Id, FNodeRecord{ Id, std::move(Node), X, Y });
+		if (IsRecordingHistory())
+		{
+			FEditCommand Cmd;
+			Cmd.Type = EEditCommand::AddNode;
+			Cmd.NodeId = Id;
+			Cmd.NodeType = std::move(TypeName);
+			Cmd.PosX = X;
+			Cmd.PosY = Y;
+			History->Push(std::move(Cmd));
+		}
 		return Id;
 	}
 
@@ -54,20 +68,69 @@ namespace NodeSynth
 		{
 			return 0;
 		}
+		std::string TypeName = Node ? Node->GetTypeName() : std::string();
 		Nodes.emplace(Id, FNodeRecord{ Id, std::move(Node), X, Y });
 		if (Id >= NextNodeId)
 		{
 			NextNodeId = Id + 1;
+		}
+		if (IsRecordingHistory())
+		{
+			FEditCommand Cmd;
+			Cmd.Type = EEditCommand::AddNode;
+			Cmd.NodeId = Id;
+			Cmd.NodeType = std::move(TypeName);
+			Cmd.PosX = X;
+			Cmd.PosY = Y;
+			History->Push(std::move(Cmd));
 		}
 		return Id;
 	}
 
 	void FGraphModel::RemoveNode(FNodeId Id)
 	{
+		auto It = Nodes.find(Id);
+		if (It == Nodes.end())
+		{
+			return;
+		}
+
+		FEditCommand Cmd;
+		const bool bRecord = IsRecordingHistory();
+		if (bRecord)
+		{
+			Cmd.Type = EEditCommand::RemoveNode;
+			Cmd.NodeId = Id;
+			Cmd.NodeType = It->second.Node ? It->second.Node->GetTypeName() : std::string();
+			Cmd.PosX = It->second.PositionX;
+			Cmd.PosY = It->second.PositionY;
+			Cmd.bPerVoice = It->second.bPerVoice;
+			if (It->second.Node)
+			{
+				const auto Infos = It->second.Node->GetParamInfos();
+				for (uint32_t I = 0; I < Infos.size(); ++I)
+				{
+					Cmd.Params.push_back({ Infos[I].Name, It->second.Node->GetParamValue(I) });
+				}
+			}
+			for (const FLink& L : Links)
+			{
+				if (L.FromNode == Id || L.ToNode == Id)
+				{
+					Cmd.IncidentLinks.push_back({ L.Id, L.FromNode, L.FromPort, L.ToNode, L.ToPort });
+				}
+			}
+		}
+
 		Links.erase(std::remove_if(Links.begin(), Links.end(),
 			[Id](const FLink& L) { return L.FromNode == Id || L.ToNode == Id; }),
 			Links.end());
 		Nodes.erase(Id);
+
+		if (bRecord)
+		{
+			History->Push(std::move(Cmd));
+		}
 	}
 
 	FNodeRecord* FGraphModel::FindNode(FNodeId Id)
@@ -89,7 +152,17 @@ namespace NodeSynth
 		{
 			return false;
 		}
+		const bool bWas = It->second.bPerVoice;
 		It->second.bPerVoice = bPerVoice;
+		if (bWas != bPerVoice && IsRecordingHistory())
+		{
+			FEditCommand Cmd;
+			Cmd.Type = EEditCommand::SetNodePerVoice;
+			Cmd.NodeId = Id;
+			Cmd.OldPerVoice = bWas;
+			Cmd.NewPerVoice = bPerVoice;
+			History->Push(std::move(Cmd));
+		}
 		return true;
 	}
 
@@ -161,14 +234,81 @@ namespace NodeSynth
 
 		const FLinkId Id = NextLinkId++;
 		Links.push_back(FLink{ Id, FromNode, FromPort, ToNode, ToPort });
+		if (IsRecordingHistory())
+		{
+			FEditCommand Cmd;
+			Cmd.Type = EEditCommand::AddLink;
+			Cmd.LinkId = Id;
+			Cmd.FromNode = FromNode;
+			Cmd.FromPort = FromPort;
+			Cmd.ToNode = ToNode;
+			Cmd.ToPort = ToPort;
+			History->Push(std::move(Cmd));
+		}
+		return Id;
+	}
+
+	FLinkId FGraphModel::AddLinkWithId(FLinkId Id, FNodeId FromNode, uint32_t FromPort, FNodeId ToNode, uint32_t ToPort)
+	{
+		if (Id == 0)
+		{
+			return 0;
+		}
+		for (const FLink& L : Links)
+		{
+			if (L.Id == Id) { return 0; }  // already in use
+		}
+		FNodeRecord* From = FindNode(FromNode);
+		FNodeRecord* To = FindNode(ToNode);
+		if (!From || !To) { return 0; }
+		const auto OutPorts = From->Node->GetOutputPorts();
+		const auto InPorts = To->Node->GetInputPorts();
+		if (FromPort >= OutPorts.size() || ToPort >= InPorts.size()) { return 0; }
+		if (OutPorts[FromPort].Type != InPorts[ToPort].Type) { return 0; }
+		if (FromNode == ToNode) { return 0; }
+		// Drop any conflicting same-input-port link.
+		Links.erase(std::remove_if(Links.begin(), Links.end(),
+			[ToNode, ToPort](const FLink& L) { return L.ToNode == ToNode && L.ToPort == ToPort; }),
+			Links.end());
+		if (WouldCreateCycle(Links, FromNode, ToNode)) { return 0; }
+		Links.push_back(FLink{ Id, FromNode, FromPort, ToNode, ToPort });
+		if (Id >= NextLinkId)
+		{
+			NextLinkId = Id + 1;
+		}
+		// AddLinkWithId is only used by undo/redo replay, so by design
+		// IsRecordingHistory() is false here. We don't push.
 		return Id;
 	}
 
 	void FGraphModel::RemoveLink(FLinkId Id)
 	{
+		FEditCommand Cmd;
+		const bool bRecord = IsRecordingHistory();
+		if (bRecord)
+		{
+			for (const FLink& L : Links)
+			{
+				if (L.Id == Id)
+				{
+					Cmd.Type = EEditCommand::RemoveLink;
+					Cmd.LinkId = L.Id;
+					Cmd.FromNode = L.FromNode;
+					Cmd.FromPort = L.FromPort;
+					Cmd.ToNode = L.ToNode;
+					Cmd.ToPort = L.ToPort;
+					break;
+				}
+			}
+		}
+		const size_t Before = Links.size();
 		Links.erase(std::remove_if(Links.begin(), Links.end(),
 			[Id](const FLink& L) { return L.Id == Id; }),
 			Links.end());
+		if (bRecord && Links.size() != Before)
+		{
+			History->Push(std::move(Cmd));
+		}
 	}
 
 	std::shared_ptr<FAudioGraph> FGraphModel::Compile(double SampleRate)

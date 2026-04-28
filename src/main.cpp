@@ -24,6 +24,7 @@
 #include "dsp/Output.h"
 #include "dsp/VirtualKeyboard.h"
 #include "dsp/VoiceAllocator.h"
+#include "graph/EditHistory.h"
 #include "graph/Graph.h"
 #include "io/PatchSerializer.h"
 #include "ui/Editor.h"
@@ -229,8 +230,15 @@ int main()
 
 	// ---- Graph + editor -----------------------------------------------------
 	FGraphModel Model;
-	FGraphEditorPanel EditorPanel(NodeEditorIniPath);
+	FEditHistory EditHistory;
+	// SeedDefaultPatch builds the graph BEFORE we attach the history, so the
+	// initial state isn't undoable (good — the user can't undo back to an
+	// empty graph that's never been seen).
 	SeedDefaultPatch(Model);
+	Model.SetHistory(&EditHistory);
+
+	FGraphEditorPanel EditorPanel(NodeEditorIniPath);
+	EditorPanel.SetEditHistory(&EditHistory);
 
 	// File-menu state.
 	std::filesystem::path CurrentPatchPath;
@@ -297,9 +305,11 @@ int main()
 		ImGui::DockSpace(ImGui::GetID("RootDockSpace"), ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_PassthruCentralNode);
 		ImGui::End();
 
-		// ---- File menu --------------------------------------------------------
+		// ---- File / Edit menu -------------------------------------------------
 		bool bRequestNew = false;
 		bool bRequestSave = false;
+		bool bRequestUndo = false;
+		bool bRequestRedo = false;
 		if (ImGui::BeginMainMenuBar())
 		{
 			if (ImGui::BeginMenu("File"))
@@ -322,12 +332,46 @@ int main()
 				}
 				ImGui::EndMenu();
 			}
+			if (ImGui::BeginMenu("Edit"))
+			{
+				if (ImGui::MenuItem("Undo", "Ctrl+Z", false, EditHistory.CanUndo()))
+				{
+					bRequestUndo = true;
+				}
+				if (ImGui::MenuItem("Redo", "Ctrl+Y", false, EditHistory.CanRedo()))
+				{
+					bRequestRedo = true;
+				}
+				ImGui::EndMenu();
+			}
 			if (!CurrentPatchPath.empty())
 			{
 				const std::string Label = CurrentPatchPath.filename().string();
 				ImGui::TextDisabled("  [%s]", Label.c_str());
 			}
 			ImGui::EndMainMenuBar();
+		}
+
+		// Hotkeys: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z. Gated on no active text input
+		// so they don't fire while typing in a path popup.
+		{
+			const ImGuiIO& IO = ImGui::GetIO();
+			const bool bCtrl = IO.KeyCtrl || IO.KeySuper;  // Cmd on macOS
+			if (!IO.WantTextInput && bCtrl)
+			{
+				if (ImGui::IsKeyPressed(ImGuiKey_Z, false) && !IO.KeyShift)
+				{
+					bRequestUndo = true;
+				}
+				if (ImGui::IsKeyPressed(ImGuiKey_Y, false))
+				{
+					bRequestRedo = true;
+				}
+				if (ImGui::IsKeyPressed(ImGuiKey_Z, false) && IO.KeyShift)
+				{
+					bRequestRedo = true;
+				}
+			}
 		}
 
 		if (bOpenSavePopup)
@@ -400,6 +444,8 @@ int main()
 				if (Loaded)
 				{
 					Model = std::move(Loaded->Model);
+					Model.SetHistory(&EditHistory);
+					EditHistory.Clear();  // loaded patch is the new ground state
 					EditorPanel.OnModelReplaced();
 					CurrentPatchPath = P;
 					AudioState.Graph.store(Model.Compile(AudioState.SampleRate.load()));
@@ -425,7 +471,13 @@ int main()
 		if (bRequestNew)
 		{
 			Model = FGraphModel{};
+			Model.SetHistory(&EditHistory);
+			EditHistory.Clear();
+			// Seed the new model with an Output before re-attaching history,
+			// so the initial Output isn't undoable.
+			Model.SetRecordHistory(false);
 			Model.AddNode(std::make_shared<FOutput>(), 600.0f, 200.0f);
+			Model.SetRecordHistory(true);
 			EditorPanel.OnModelReplaced();
 			CurrentPatchPath.clear();
 			AudioState.Graph.store(Model.Compile(AudioState.SampleRate.load()));
@@ -433,6 +485,16 @@ int main()
 		if (bRequestSave && !CurrentPatchPath.empty())
 		{
 			SavePatch(Model, CurrentPatchPath);
+		}
+		if (bRequestUndo && EditHistory.Undo(Model))
+		{
+			EditorPanel.OnModelReplaced();
+			AudioState.Graph.store(Model.Compile(AudioState.SampleRate.load()));
+		}
+		if (bRequestRedo && EditHistory.Redo(Model))
+		{
+			EditorPanel.OnModelReplaced();
+			AudioState.Graph.store(Model.Compile(AudioState.SampleRate.load()));
 		}
 
 		// Node editor

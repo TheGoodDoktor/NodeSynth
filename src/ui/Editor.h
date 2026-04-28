@@ -3,6 +3,7 @@
 #include <string>
 
 #include "graph/AudioCommand.h"
+#include "graph/EditHistory.h"
 #include "graph/Graph.h"
 
 namespace ax::NodeEditor { struct EditorContext; }
@@ -26,6 +27,10 @@ namespace NodeSynth
 		// commands. Null is allowed (acts as a no-op); set it once at startup
 		// from main.cpp once the audio state exists.
 		void SetCommandRing(FAudioCommandRing* Ring) { CommandRing = Ring; }
+
+		// Edit history for undo/redo of param edits (slider drags coalesce
+		// into one entry via IsItemActivated / IsItemDeactivatedAfterEdit).
+		void SetEditHistory(FEditHistory* H) { History = H; }
 
 		// Renders the node editor. Returns true if the graph topology changed
 		// this frame (caller should recompile & publish to the audio thread).
@@ -51,5 +56,14 @@ namespace NodeSynth
 		// Set when the user right-clicks a node; read by the popup body the
 		// next frame to know which node the menu applies to.
 		FNodeId NodeContextTarget = 0;
+
+		// Edit history (optional). Slider edits coalesce: when a widget becomes
+		// active we capture its value-on-press; when it deactivates after edit
+		// we push a SetParam edit-history entry with old + new values.
+		FEditHistory* History = nullptr;
+		FNodeId   ActiveParamNode = 0;
+		uint32_t  ActiveParamIndex = 0;
+		float     ActiveParamOldValue = 0.0f;
+		bool      bActiveParamCaptured = false;
 	};
 }

@@ -461,6 +461,20 @@ namespace NodeSynth
 			Sink.SetParam(Index, Value);
 		};
 
+		// Push a single SetParam edit-history entry with both old + new values.
+		// Used by Bool/Choice (instantaneous) and Float (after slider release).
+		auto PushSetParamEdit = [&](uint32_t Index, float OldVal, float NewVal)
+		{
+			if (History == nullptr || OldVal == NewVal) { return; }
+			FEditCommand Cmd;
+			Cmd.Type = EEditCommand::SetParam;
+			Cmd.NodeId = Rec->Id;
+			Cmd.ParamIndex = Index;
+			Cmd.OldValue = OldVal;
+			Cmd.NewValue = NewVal;
+			History->Push(std::move(Cmd));
+		};
+
 		for (uint32_t I = 0; I < Infos.size(); ++I)
 		{
 			const FParamInfo& Info = Infos[I];
@@ -498,7 +512,10 @@ namespace NodeSynth
 							const bool bSelected = (C == Index);
 							if (ImGui::Selectable(Info.Choices[C].c_str(), bSelected))
 							{
-								WriteParam(I, static_cast<float>(C));
+								const float Before = Value;
+								const float After = static_cast<float>(C);
+								WriteParam(I, After);
+								PushSetParamEdit(I, Before, After);
 							}
 							if (bSelected)
 							{
@@ -511,10 +528,13 @@ namespace NodeSynth
 				}
 				case EParamKind::Bool:
 				{
+					const float Before = Value;
 					bool bChecked = Value > 0.5f;
 					if (ImGui::Checkbox(Info.Name.c_str(), &bChecked))
 					{
-						WriteParam(I, bChecked ? 1.0f : 0.0f);
+						const float After = bChecked ? 1.0f : 0.0f;
+						WriteParam(I, After);
+						PushSetParamEdit(I, Before, After);
 					}
 					if (!Info.Description.empty() && ImGui::IsItemHovered())
 					{
@@ -529,6 +549,23 @@ namespace NodeSynth
 					if (ImGui::SliderFloat(Info.Name.c_str(), &Value, Info.MinValue, Info.MaxValue, "%.3f", Flags))
 					{
 						WriteParam(I, Value);
+					}
+					// Slider drag coalescing: capture the value at the moment
+					// the widget was first activated, push one history entry
+					// when the user releases. ImGui's IsItemActivated /
+					// IsItemDeactivatedAfterEdit are designed for exactly this.
+					if (ImGui::IsItemActivated())
+					{
+						ActiveParamNode = Rec->Id;
+						ActiveParamIndex = I;
+						ActiveParamOldValue = Rec->Node->GetParamValue(I);
+						bActiveParamCaptured = true;
+					}
+					if (ImGui::IsItemDeactivatedAfterEdit() && bActiveParamCaptured
+						&& ActiveParamNode == Rec->Id && ActiveParamIndex == I)
+					{
+						PushSetParamEdit(I, ActiveParamOldValue, Rec->Node->GetParamValue(I));
+						bActiveParamCaptured = false;
 					}
 					if (!Info.Description.empty() && ImGui::IsItemHovered())
 					{

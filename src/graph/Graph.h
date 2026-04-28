@@ -9,6 +9,7 @@
 
 namespace NodeSynth
 {
+	class FEditHistory;
 	class FVoiceAllocator;
 
 	struct FNodeRecord
@@ -90,7 +91,20 @@ namespace NodeSynth
 		// Returns 0 on failure (missing node, port out of range, type mismatch, cycle).
 		// Replaces any existing link terminating at the same input port.
 		FLinkId AddLink(FNodeId FromNode, uint32_t FromPort, FNodeId ToNode, uint32_t ToPort);
+
+		// Restores a link with a specific id (used by undo/redo replay).
+		// Returns 0 if the id is already in use or validation fails.
+		FLinkId AddLinkWithId(FLinkId Id, FNodeId FromNode, uint32_t FromPort, FNodeId ToNode, uint32_t ToPort);
+
 		void RemoveLink(FLinkId Id);
+
+		// Edit history hook. When set and recording is enabled, every mutator
+		// pushes an FEditCommand onto the history. Undo/Redo replay temporarily
+		// disables recording so the playback doesn't recurse.
+		void SetHistory(FEditHistory* InHistory) { History = InHistory; }
+		void SetRecordHistory(bool b) { bRecordHistory = b; }
+		bool IsRecordingHistory() const { return bRecordHistory && History != nullptr; }
+		FEditHistory* GetHistory() const { return History; }
 
 		// Builds an immutable audio-graph snapshot. Also writes input-buffer
 		// pointers into each node, so the snapshot is ready to Process().
@@ -110,5 +124,7 @@ namespace NodeSynth
 		std::vector<FLink> Links;
 		FNodeId NextNodeId = 1;
 		FLinkId NextLinkId = 1;
+		FEditHistory* History = nullptr;
+		bool bRecordHistory = true;
 	};
 }
