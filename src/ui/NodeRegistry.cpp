@@ -4,6 +4,7 @@
 
 #include "dsp/Add.h"
 #include "dsp/Adsr.h"
+#include "dsp/Clock.h"
 #include "dsp/Constant.h"
 #include "dsp/Delay.h"
 #include "dsp/Gain.h"
@@ -16,6 +17,7 @@
 #include "dsp/Reverb.h"
 #include "dsp/SampleHold.h"
 #include "dsp/Scale.h"
+#include "dsp/Sequencer.h"
 #include "dsp/Svf.h"
 #include "dsp/Vca.h"
 #include "dsp/VirtualKeyboard.h"
@@ -154,6 +156,20 @@ namespace NodeSynth
 				"determines the curve; Output (dB) compensates loudness.\n"
 				"Aliases at high drive — oversampling is a Phase 5 deliverable.",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FWaveshaper>(); },
+			},
+			{
+				"Clock", "Clock",
+				"Square-wave gate at a configurable BPM. Drives a Sequencer's Clock\n"
+				"input out of the box. One pulse per beat (50%% duty cycle).",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FClock>(); },
+			},
+			{
+				"Sequencer", "Sequencer",
+				"16-step sequencer driven by an external Clock. Per-step pitch\n"
+				"(semitones from RootNote), velocity, gate length, and enable.\n"
+				"Outputs Gate / Frequency / Velocity Control signals — feed Frequency\n"
+				"into an Oscillator and Gate into an ADSR for a classic sequenced lead.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FSequencer>(); },
 			},
 			{
 				"VoiceAllocator", "Voice Allocator",

@@ -15,6 +15,7 @@
 #include "dsp/MidiInput.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
+#include "dsp/Sequencer.h"
 #include "dsp/Svf.h"
 #include "dsp/Vca.h"
 #include "dsp/VirtualKeyboard.h"
@@ -22,6 +23,7 @@
 #include "ui/NodeIcons.h"
 #include "ui/NodeRegistry.h"
 #include "ui/Palette.h"
+#include "ui/SequencerUI.h"
 #include "ui/VirtualKeyboardUI.h"
 
 namespace ed = ax::NodeEditor;
@@ -455,6 +457,11 @@ namespace NodeSynth
 		for (uint32_t I = 0; I < Infos.size(); ++I)
 		{
 			const FParamInfo& Info = Infos[I];
+			if (Info.bHidden)
+			{
+				continue;  // hidden params (e.g. sequencer grid cells) are
+				           // surfaced via custom UI hooks below.
+			}
 			float Value = Rec->Node->GetParamValue(I);
 
 			switch (Info.Kind)
@@ -529,6 +536,10 @@ namespace NodeSynth
 		if (auto* Adsr = dynamic_cast<FAdsr*>(Rec->Node.get()))
 		{
 			DrawAdsrUI(*Adsr);
+		}
+		if (auto* Seq = dynamic_cast<FSequencer*>(Rec->Node.get()))
+		{
+			DrawSequencerUI(*Seq, Sink);
 		}
 	}
 

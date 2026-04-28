@@ -1,5 +1,6 @@
 #include "ui/NodeIcons.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -273,6 +274,38 @@ namespace NodeSynth
 			Draw->AddPolyline(Pts, 7, Col, 0, 1.5f);
 		}
 
+		void DrawClockIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Circle with two hands at 12 and 3 o'clock.
+			const float Cx = (Min.x + Max.x) * 0.5f;
+			const float Cy = (Min.y + Max.y) * 0.5f;
+			const float R = std::min(Max.x - Min.x, Max.y - Min.y) * 0.35f;
+			Draw->AddCircle(ImVec2(Cx, Cy), R, Col, 16, 1.5f);
+			Draw->AddLine(ImVec2(Cx, Cy), ImVec2(Cx, Cy - R * 0.65f), Col, 1.5f);
+			Draw->AddLine(ImVec2(Cx, Cy), ImVec2(Cx + R * 0.5f, Cy), Col, 1.5f);
+		}
+
+		void DrawSequencerIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Eight stylised step bars at varying heights.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.10f;
+			const float R = Max.x - W * 0.10f;
+			const float Bottom = Max.y - H * 0.20f;
+			constexpr int32_t NumBars = 8;
+			constexpr float Heights[NumBars] = {
+				0.50f, 0.30f, 0.65f, 0.40f, 0.55f, 0.25f, 0.70f, 0.45f
+			};
+			const float StepW = (R - L) / NumBars;
+			for (int32_t I = 0; I < NumBars; ++I)
+			{
+				const float X = L + (static_cast<float>(I) + 0.5f) * StepW;
+				const float Top = Bottom - Heights[I] * H * 0.7f;
+				Draw->AddLine(ImVec2(X, Bottom), ImVec2(X, Top), Col, 1.5f);
+			}
+		}
+
 		void DrawWaveshaperIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
 		{
 			// Sigmoid-like S-curve: rises linearly through the middle, flattens
@@ -454,6 +487,14 @@ namespace NodeSynth
 		else if (std::strcmp(TypeName, "Waveshaper") == 0)
 		{
 			DrawWaveshaperIcon(Draw, Min, Max, ColEffect);
+		}
+		else if (std::strcmp(TypeName, "Clock") == 0)
+		{
+			DrawClockIcon(Draw, Min, Max, ColControl);
+		}
+		else if (std::strcmp(TypeName, "Sequencer") == 0)
+		{
+			DrawSequencerIcon(Draw, Min, Max, ColControl);
 		}
 		else
 		{

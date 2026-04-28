@@ -50,6 +50,10 @@ namespace NodeSynth
 		// Empty disables the tooltip. New field at the end so existing brace
 		// initialisers that omit it default-construct to "".
 		std::string Description;
+		// When true, the standard property-panel widget loop skips this param.
+		// Save/load still round-trips it. Use for params that have a custom UI
+		// (e.g. the sequencer's per-step grid) so they don't appear twice.
+		bool bHidden = false;
 	};
 
 	struct FProcessContext
