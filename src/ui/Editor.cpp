@@ -12,17 +12,21 @@
 #include "dsp/Adsr.h"
 #include "dsp/Gain.h"
 #include "dsp/GateButton.h"
+#include "dsp/Meter.h"
 #include "dsp/MidiInput.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
+#include "dsp/Scope.h"
 #include "dsp/Sequencer.h"
 #include "dsp/Svf.h"
 #include "dsp/Vca.h"
 #include "dsp/VirtualKeyboard.h"
 #include "ui/AdsrUI.h"
+#include "ui/MeterUI.h"
 #include "ui/NodeIcons.h"
 #include "ui/NodeRegistry.h"
 #include "ui/Palette.h"
+#include "ui/ScopeUI.h"
 #include "ui/SequencerUI.h"
 #include "ui/VirtualKeyboardUI.h"
 
@@ -437,10 +441,13 @@ namespace NodeSynth
 		ImGui::Separator();
 
 		const auto Infos = Rec->Node->GetParamInfos();
-		if (Infos.empty())
+		// Don't early-return here even if Infos is empty — passive-tap nodes
+		// (Meter, etc.) have no params but still want their custom UI to draw.
+		const bool bAllHidden = std::all_of(Infos.begin(), Infos.end(),
+			[](const FParamInfo& I) { return I.bHidden; });
+		if (Infos.empty() || bAllHidden)
 		{
 			ImGui::TextDisabled("(no parameters)");
-			return;
 		}
 
 		// Param edits write the atomic directly (so the slider tracks immediately
@@ -540,6 +547,14 @@ namespace NodeSynth
 		if (auto* Seq = dynamic_cast<FSequencer*>(Rec->Node.get()))
 		{
 			DrawSequencerUI(*Seq, Sink);
+		}
+		if (auto* Scope = dynamic_cast<FScope*>(Rec->Node.get()))
+		{
+			DrawScopeUI(*Scope);
+		}
+		if (auto* Meter = dynamic_cast<FMeter*>(Rec->Node.get()))
+		{
+			DrawMeterUI(*Meter);
 		}
 	}
 

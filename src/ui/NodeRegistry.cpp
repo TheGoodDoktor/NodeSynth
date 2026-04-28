@@ -10,6 +10,7 @@
 #include "dsp/Gain.h"
 #include "dsp/GateButton.h"
 #include "dsp/Lfo.h"
+#include "dsp/Meter.h"
 #include "dsp/MidiInput.h"
 #include "dsp/Multiply.h"
 #include "dsp/Oscillator.h"
@@ -17,6 +18,7 @@
 #include "dsp/Reverb.h"
 #include "dsp/SampleHold.h"
 #include "dsp/Scale.h"
+#include "dsp/Scope.h"
 #include "dsp/Sequencer.h"
 #include "dsp/Svf.h"
 #include "dsp/Vca.h"
@@ -170,6 +172,20 @@ namespace NodeSynth
 				"Outputs Gate / Frequency / Velocity Control signals — feed Frequency\n"
 				"into an Oscillator and Gate into an ADSR for a classic sequenced lead.",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FSequencer>(); },
+			},
+			{
+				"Scope", "Scope",
+				"Audio passthrough that captures the most recent samples for\n"
+				"visualisation in the property panel. Drop one anywhere in the\n"
+				"chain to inspect the signal shape.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FScope>(); },
+			},
+			{
+				"Meter", "Meter",
+				"Audio passthrough that exposes peak and RMS levels (in dBFS)\n"
+				"in the property panel. Peak holds for ~500 ms then decays;\n"
+				"RMS is a 50 ms moving average.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FMeter>(); },
 			},
 			{
 				"VoiceAllocator", "Voice Allocator",

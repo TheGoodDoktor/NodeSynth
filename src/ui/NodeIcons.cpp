@@ -274,6 +274,54 @@ namespace NodeSynth
 			Draw->AddPolyline(Pts, 7, Col, 0, 1.5f);
 		}
 
+		void DrawScopeIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Outline frame + sine trace inside (oscilloscope visual).
+			const float Inset = (Max.y - Min.y) * 0.18f;
+			Draw->AddRect(
+				ImVec2(Min.x + Inset, Min.y + Inset),
+				ImVec2(Max.x - Inset, Max.y - Inset),
+				Col, 1.0f, 0, 1.0f);
+
+			constexpr int32_t Segments = 24;
+			ImVec2 Pts[Segments + 1];
+			const float L = Min.x + Inset + 2.0f;
+			const float R = Max.x - Inset - 2.0f;
+			const float Mid = (Min.y + Max.y) * 0.5f;
+			const float Amp = (Max.y - Min.y) * 0.18f;
+			for (int32_t I = 0; I <= Segments; ++I)
+			{
+				const float T = static_cast<float>(I) / Segments;
+				const float X = L + T * (R - L);
+				const float Y = Mid - Amp * std::sin(T * 2.0f * 3.14159265f);
+				Pts[I] = ImVec2(X, Y);
+			}
+			Draw->AddPolyline(Pts, Segments + 1, Col, 0, 1.5f);
+		}
+
+		void DrawMeterIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Vertical bar with three tick marks on the right (VU-style).
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.30f;
+			const float R = Max.x - W * 0.20f;
+			const float T = Min.y + H * 0.18f;
+			const float B = Max.y - H * 0.18f;
+			Draw->AddRect(ImVec2(L, T), ImVec2(R, B), Col, 1.0f, 0, 1.0f);
+			// Fill the lower half to suggest a level reading.
+			const float MidY = (T + B) * 0.5f;
+			Draw->AddRectFilled(ImVec2(L + 1.0f, MidY), ImVec2(R - 1.0f, B - 1.0f), Col);
+			// Tick marks on the left.
+			const float TickX1 = L - W * 0.08f;
+			const float TickX2 = L - 1.0f;
+			for (int32_t I = 0; I < 4; ++I)
+			{
+				const float Y = T + (B - T) * (static_cast<float>(I) / 3.0f);
+				Draw->AddLine(ImVec2(TickX1, Y), ImVec2(TickX2, Y), Col, 1.0f);
+			}
+		}
+
 		void DrawClockIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
 		{
 			// Circle with two hands at 12 and 3 o'clock.
@@ -495,6 +543,14 @@ namespace NodeSynth
 		else if (std::strcmp(TypeName, "Sequencer") == 0)
 		{
 			DrawSequencerIcon(Draw, Min, Max, ColControl);
+		}
+		else if (std::strcmp(TypeName, "Scope") == 0)
+		{
+			DrawScopeIcon(Draw, Min, Max, ColAmp);
+		}
+		else if (std::strcmp(TypeName, "Meter") == 0)
+		{
+			DrawMeterIcon(Draw, Min, Max, ColAmp);
 		}
 		else
 		{
