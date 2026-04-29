@@ -80,6 +80,23 @@ namespace NodeSynth
 	{
 		bool bChanged = false;
 
+		// Compile-error banner. Sits above the editor canvas — high visibility,
+		// dismissed automatically when the user fixes the link.
+		const FCompileError& CompileError = Model.GetLastCompileError();
+		if (CompileError.bHasError)
+		{
+			const ImVec4 ErrorColour(1.0f, 0.45f, 0.40f, 1.0f);
+			ImGui::PushStyleColor(ImGuiCol_Text, ErrorColour);
+			ImGui::TextUnformatted("Compile error");
+			ImGui::PopStyleColor();
+			ImGui::PushTextWrapPos(0.0f);
+			ImGui::TextUnformatted(CompileError.Message.c_str());
+			ImGui::PopTextWrapPos();
+			ImGui::TextDisabled(
+				"Audio is still playing the last working patch — fix the highlighted link to apply your edits.");
+			ImGui::Separator();
+		}
+
 		ed::SetCurrentEditor(Context);
 		ed::Begin("Node Editor", ImVec2(0.0f, 0.0f));
 
@@ -140,12 +157,28 @@ namespace NodeSynth
 			}
 		}
 
-		// Draw links.
+		// Draw links. The link the last compile rejected (if any) renders in
+		// red so the user can spot it without scanning the patch.
 		for (const FLink& L : Model.GetLinks())
 		{
-			ed::Link(ed::LinkId(L.Id),
-				ed::PinId(EncodePinId(L.FromNode, L.FromPort, true)),
-				ed::PinId(EncodePinId(L.ToNode, L.ToPort, false)));
+			const bool bIsBadLink = CompileError.bHasError
+				&& L.FromNode == CompileError.FromNode
+				&& L.FromPort == CompileError.FromPort
+				&& L.ToNode == CompileError.ToNode
+				&& L.ToPort == CompileError.ToPort;
+			if (bIsBadLink)
+			{
+				ed::Link(ed::LinkId(L.Id),
+					ed::PinId(EncodePinId(L.FromNode, L.FromPort, true)),
+					ed::PinId(EncodePinId(L.ToNode, L.ToPort, false)),
+					ImColor(255, 90, 90, 255), 2.5f);
+			}
+			else
+			{
+				ed::Link(ed::LinkId(L.Id),
+					ed::PinId(EncodePinId(L.FromNode, L.FromPort, true)),
+					ed::PinId(EncodePinId(L.ToNode, L.ToPort, false)));
+			}
 		}
 
 		// Creation: user drags a link between two pins.

@@ -12,6 +12,7 @@
 #include "dsp/Lfo.h"
 #include "dsp/Meter.h"
 #include "dsp/MidiInput.h"
+#include "dsp/Mixer.h"
 #include "dsp/Multiply.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
@@ -38,6 +39,13 @@ namespace NodeSynth
 				"Inputs: Freq, Amp (Control). Output: audio.\n"
 				"Saw / square / triangle use PolyBLEP to suppress aliasing.",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FOscillator>(); },
+			},
+			{
+				"Mixer", "Mixer",
+				"4-channel audio mixer with per-channel gain. Sums In1..In4 (each\n"
+				"scaled by its smoothed gain) into a single Out. Mark per-voice to\n"
+				"layer multiple oscillators per voice (saw + sub + noise etc.).",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FMixer>(); },
 			},
 			{
 				"Gain", "Gain",

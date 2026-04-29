@@ -448,7 +448,11 @@ int main()
 					EditHistory.Clear();  // loaded patch is the new ground state
 					EditorPanel.OnModelReplaced();
 					CurrentPatchPath = P;
-					AudioState.Graph.store(Model.Compile(AudioState.SampleRate.load()));
+					auto NewSnapshot = Model.Compile(AudioState.SampleRate.load());
+					if (!Model.GetLastCompileError().bHasError)
+					{
+						AudioState.Graph.store(std::move(NewSnapshot));
+					}
 					for (const auto& Cmd : Loaded->InitialParams)
 					{
 						AudioState.Commands.Push(Cmd);
@@ -489,12 +493,20 @@ int main()
 		if (bRequestUndo && EditHistory.Undo(Model))
 		{
 			EditorPanel.OnModelReplaced();
-			AudioState.Graph.store(Model.Compile(AudioState.SampleRate.load()));
+			auto NewSnapshot = Model.Compile(AudioState.SampleRate.load());
+			if (!Model.GetLastCompileError().bHasError)
+			{
+				AudioState.Graph.store(std::move(NewSnapshot));
+			}
 		}
 		if (bRequestRedo && EditHistory.Redo(Model))
 		{
 			EditorPanel.OnModelReplaced();
-			AudioState.Graph.store(Model.Compile(AudioState.SampleRate.load()));
+			auto NewSnapshot = Model.Compile(AudioState.SampleRate.load());
+			if (!Model.GetLastCompileError().bHasError)
+			{
+				AudioState.Graph.store(std::move(NewSnapshot));
+			}
 		}
 
 		// Node editor
@@ -529,7 +541,13 @@ int main()
 
 		if (bGraphChanged)
 		{
-			AudioState.Graph.store(Model.Compile(AudioState.SampleRate.load()));
+			auto NewSnapshot = Model.Compile(AudioState.SampleRate.load());
+			if (!Model.GetLastCompileError().bHasError)
+			{
+				AudioState.Graph.store(std::move(NewSnapshot));
+			}
+			// On compile failure, keep the previous good snapshot live so the
+			// audio doesn't go silent. The error is surfaced in the UI.
 		}
 
 		ImGui::Render();

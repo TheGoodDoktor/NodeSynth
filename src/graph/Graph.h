@@ -33,6 +33,19 @@ namespace NodeSynth
 		uint32_t ToPort = 0;
 	};
 
+	// Diagnostics from the last Compile. UI surfaces this to flag the offending
+	// connection visually instead of silently producing an empty audio graph.
+	struct FCompileError
+	{
+		bool bHasError = false;
+		std::string Message;
+		// Endpoints of the link that triggered the error (or 0 if not a link issue).
+		FNodeId FromNode = 0;
+		uint32_t FromPort = 0;
+		FNodeId ToNode = 0;
+		uint32_t ToPort = 0;
+	};
+
 	// Audio-thread-side graph snapshot. Immutable after construction. Nodes are
 	// shared with the UI thread, but ownership is conceptually joint: both
 	// threads hold the shared_ptr so neither destroys on the audio thread.
@@ -108,7 +121,12 @@ namespace NodeSynth
 
 		// Builds an immutable audio-graph snapshot. Also writes input-buffer
 		// pointers into each node, so the snapshot is ready to Process().
+		// Validation failures populate LastCompileError and return a snapshot
+		// with empty OrderedNodes — caller should keep the previous good
+		// snapshot live in the audio thread and surface the error to the UI.
 		std::shared_ptr<FAudioGraph> Compile(double SampleRate);
+
+		const FCompileError& GetLastCompileError() const { return LastCompileError; }
 
 		const std::unordered_map<FNodeId, FNodeRecord>& GetNodes() const { return Nodes; }
 		const std::vector<FLink>& GetLinks() const { return Links; }
@@ -126,5 +144,6 @@ namespace NodeSynth
 		FLinkId NextLinkId = 1;
 		FEditHistory* History = nullptr;
 		bool bRecordHistory = true;
+		FCompileError LastCompileError;
 	};
 }

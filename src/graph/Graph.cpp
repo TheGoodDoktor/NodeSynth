@@ -313,6 +313,7 @@ namespace NodeSynth
 
 	std::shared_ptr<FAudioGraph> FGraphModel::Compile(double SampleRate)
 	{
+		LastCompileError = FCompileError{};  // clear at the start of every Compile
 		auto Graph = std::make_shared<FAudioGraph>();
 
 		// -- Step 1: locate the output sink --------------------------------------
@@ -401,6 +402,14 @@ namespace NodeSynth
 						"Mark the destination per-voice or break the link.\n",
 						static_cast<unsigned long long>(L.FromNode), L.FromPort,
 						static_cast<unsigned long long>(L.ToNode), L.ToPort);
+					LastCompileError.bHasError = true;
+					LastCompileError.Message =
+						"Polyphonic Control output → mono Control input. "
+						"Mark the destination per-voice (right-click the node → Per-voice) or break the link.";
+					LastCompileError.FromNode = L.FromNode;
+					LastCompileError.FromPort = L.FromPort;
+					LastCompileError.ToNode = L.ToNode;
+					LastCompileError.ToPort = L.ToPort;
 					return std::make_shared<FAudioGraph>();
 				}
 			}

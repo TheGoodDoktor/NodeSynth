@@ -87,6 +87,57 @@ TEST_CASE("Partition: rejects per-voice → mono Control link", "[partition]")
 	REQUIRE(Snapshot->OutputNode == nullptr);
 }
 
+TEST_CASE("Partition: failed Compile populates LastCompileError with the bad link's endpoints", "[partition]")
+{
+	FGraphModel Model;
+	auto Alloc = std::make_shared<FVoiceAllocator>();
+	auto Osc = std::make_shared<FOscillator>();
+	auto Out = std::make_shared<FOutput>();
+	const FNodeId AllocId = Model.AddNode(Alloc);
+	const FNodeId OscId = Model.AddNode(Osc);
+	const FNodeId OutId = Model.AddNode(Out);
+	REQUIRE(Model.AddLink(AllocId, FVoiceAllocator::Output_Frequency,
+		OscId, FOscillator::Input_Frequency) != 0);
+	REQUIRE(Model.AddLink(OscId, 0, OutId, 0) != 0);
+
+	auto Snapshot = CompileAt(Model);
+	const auto& Err = Model.GetLastCompileError();
+	REQUIRE(Err.bHasError);
+	REQUIRE(Err.FromNode == AllocId);
+	REQUIRE(Err.FromPort == FVoiceAllocator::Output_Frequency);
+	REQUIRE(Err.ToNode == OscId);
+	REQUIRE(Err.ToPort == FOscillator::Input_Frequency);
+	REQUIRE(!Err.Message.empty());
+}
+
+TEST_CASE("Partition: successful Compile clears LastCompileError", "[partition]")
+{
+	FGraphModel Model;
+	auto Alloc = std::make_shared<FVoiceAllocator>();
+	auto Osc = std::make_shared<FOscillator>();
+	auto Out = std::make_shared<FOutput>();
+	const FNodeId AllocId = Model.AddNode(Alloc);
+	const FNodeId OscId = Model.AddNode(Osc);
+	const FNodeId OutId = Model.AddNode(Out);
+	REQUIRE(Model.SetNodePerVoice(OscId, true));
+	REQUIRE(Model.AddLink(AllocId, FVoiceAllocator::Output_Frequency,
+		OscId, FOscillator::Input_Frequency) != 0);
+	REQUIRE(Model.AddLink(OscId, 0, OutId, 0) != 0);
+
+	auto Snapshot = CompileAt(Model);
+	REQUIRE_FALSE(Model.GetLastCompileError().bHasError);
+
+	// Break it deliberately: clear the per-voice flag. Now Compile should fail.
+	Model.SetNodePerVoice(OscId, false);
+	Snapshot = CompileAt(Model);
+	REQUIRE(Model.GetLastCompileError().bHasError);
+
+	// Fix it again: re-mark per-voice. Compile should clear the error.
+	Model.SetNodePerVoice(OscId, true);
+	Snapshot = CompileAt(Model);
+	REQUIRE_FALSE(Model.GetLastCompileError().bHasError);
+}
+
 TEST_CASE("Partition: per-voice → mono Audio synthesises one mixer per source port", "[partition]")
 {
 	FGraphModel Model;

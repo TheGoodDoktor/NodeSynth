@@ -420,6 +420,32 @@ namespace NodeSynth
 			Draw->AddLine(ImVec2(X1, ArcY), ImVec2(X1 + 4.0f, ArcY + 3.0f), Col, 1.2f);
 		}
 
+		void DrawMixerIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Fan-in: four parallel inputs on the left merging into one output
+			// on the right. Mirror of the voice-allocator's fan-out icon.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.10f;
+			const float R = Max.x - W * 0.10f;
+			const float Cy = (Min.y + Max.y) * 0.5f;
+			const float TopY = Min.y + H * 0.20f;
+			const float BotY = Max.y - H * 0.20f;
+			const float Mid1 = Cy - (Cy - TopY) * 0.45f;
+			const float Mid2 = Cy + (BotY - Cy) * 0.45f;
+			const float JoinX = Min.x + W * 0.65f;
+
+			// Four input branches (left).
+			Draw->AddLine(ImVec2(L, TopY), ImVec2(JoinX, TopY), Col, 1.5f);
+			Draw->AddLine(ImVec2(L, Mid1), ImVec2(JoinX, Mid1), Col, 1.5f);
+			Draw->AddLine(ImVec2(L, Mid2), ImVec2(JoinX, Mid2), Col, 1.5f);
+			Draw->AddLine(ImVec2(L, BotY), ImVec2(JoinX, BotY), Col, 1.5f);
+			// Vertical join.
+			Draw->AddLine(ImVec2(JoinX, TopY), ImVec2(JoinX, BotY), Col, 1.5f);
+			// Output stem.
+			Draw->AddLine(ImVec2(JoinX, Cy), ImVec2(R, Cy), Col, 1.5f);
+		}
+
 		void DrawVoiceAllocatorIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
 		{
 			// Fan-out: one input on the left branching to four parallel outputs.
@@ -523,6 +549,10 @@ namespace NodeSynth
 		else if (std::strcmp(TypeName, "VoiceAllocator") == 0)
 		{
 			DrawVoiceAllocatorIcon(Draw, Min, Max, ColInput);
+		}
+		else if (std::strcmp(TypeName, "Mixer") == 0)
+		{
+			DrawMixerIcon(Draw, Min, Max, ColAmp);
 		}
 		else if (std::strcmp(TypeName, "Delay") == 0)
 		{
