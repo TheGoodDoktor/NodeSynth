@@ -196,6 +196,65 @@ TEST_CASE("EditHistory: SetRecordHistory(false) suppresses recording", "[edithis
 	REQUIRE(History.UndoSize() == 1);
 }
 
+TEST_CASE("EditHistory: composite groups multiple edits into one undo unit", "[edithistory][composite]")
+{
+	FGraphModel Model;
+	FEditHistory History;
+	Model.SetHistory(&History);
+
+	// Three node adds inside a composite → 1 undo entry, undoes all three at once.
+	History.BeginComposite();
+	const FNodeId A = Model.AddNode(std::make_shared<FGain>());
+	const FNodeId B = Model.AddNode(std::make_shared<FGain>());
+	const FNodeId C = Model.AddNode(std::make_shared<FGain>());
+	History.EndComposite();
+	(void)A; (void)B; (void)C;
+
+	REQUIRE(Model.GetNodes().size() == 3);
+	REQUIRE(History.UndoSize() == 1);
+
+	REQUIRE(History.Undo(Model));
+	REQUIRE(Model.GetNodes().size() == 0);
+	REQUIRE(History.UndoSize() == 0);
+	REQUIRE(History.RedoSize() == 1);
+
+	REQUIRE(History.Redo(Model));
+	REQUIRE(Model.GetNodes().size() == 3);
+}
+
+TEST_CASE("EditHistory: empty composite is a no-op", "[edithistory][composite]")
+{
+	FGraphModel Model;
+	FEditHistory History;
+	Model.SetHistory(&History);
+
+	History.BeginComposite();
+	History.EndComposite();
+	REQUIRE(History.UndoSize() == 0);
+}
+
+TEST_CASE("EditHistory: composite undo unwinds in reverse so dependent commands undo first", "[edithistory][composite]")
+{
+	FGraphModel Model;
+	FEditHistory History;
+	Model.SetHistory(&History);
+
+	History.BeginComposite();
+	const FNodeId OscId = Model.AddNode(std::make_shared<FOscillator>());
+	const FNodeId OutId = Model.AddNode(std::make_shared<FOutput>());
+	Model.AddLink(OscId, 0, OutId, 0);
+	History.EndComposite();
+
+	REQUIRE(Model.GetNodes().size() == 2);
+	REQUIRE(Model.GetLinks().size() == 1);
+
+	// One undo unwinds: link removed first, then nodes — so the AddNode-undo
+	// (which would otherwise also remove the link) finds nothing to do.
+	REQUIRE(History.Undo(Model));
+	REQUIRE(Model.GetNodes().size() == 0);
+	REQUIRE(Model.GetLinks().size() == 0);
+}
+
 TEST_CASE("EditHistory: Clear empties both stacks", "[edithistory]")
 {
 	FGraphModel Model;

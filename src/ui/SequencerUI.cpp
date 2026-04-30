@@ -33,7 +33,7 @@ namespace NodeSynth
 		// Lay out 16 columns. Each column has: enable checkbox, pitch
 		// vertical slider, velocity horizontal bar, gate-length bar.
 		ImGui::BeginGroup();
-		for (size_t I = 0; I < FSequencer::MaxSteps; ++I)
+		for (uint32_t I = 0; I < FSequencer::MaxSteps; ++I)
 		{
 			ImGui::PushID(static_cast<int>(I));
 

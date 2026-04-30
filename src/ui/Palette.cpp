@@ -1,6 +1,10 @@
 #include "ui/Palette.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cstdint>
+#include <cstring>
+#include <string>
 
 #include <imgui.h>
 
@@ -9,9 +13,41 @@
 
 namespace NodeSynth
 {
+	namespace
+	{
+		// Case-insensitive substring match. Used by the palette filter.
+		bool ContainsCaseInsensitive(const char* Haystack, const char* Needle)
+		{
+			if (Needle == nullptr || *Needle == '\0') { return true; }
+			if (Haystack == nullptr) { return false; }
+			const size_t HLen = std::strlen(Haystack);
+			const size_t NLen = std::strlen(Needle);
+			if (NLen > HLen) { return false; }
+			for (size_t I = 0; I <= HLen - NLen; ++I)
+			{
+				size_t J = 0;
+				while (J < NLen)
+				{
+					const char A = static_cast<char>(std::tolower(Haystack[I + J]));
+					const char B = static_cast<char>(std::tolower(Needle[J]));
+					if (A != B) { break; }
+					++J;
+				}
+				if (J == NLen) { return true; }
+			}
+			return false;
+		}
+	}
+
 	void DrawNodePalette()
 	{
 		ImGui::TextDisabled("Drag a node into the graph.");
+
+		// Filter input. Persistent state via ImGui's static buffer pattern.
+		static char FilterBuffer[64] = "";
+		ImGui::SetNextItemWidth(-1.0f);
+		ImGui::InputTextWithHint("##palette_filter", "Filter...",
+			FilterBuffer, sizeof(FilterBuffer));
 		ImGui::Separator();
 
 		const auto& Registry = GetNodeRegistry();
@@ -22,6 +58,12 @@ namespace NodeSynth
 		for (size_t I = 0; I < Registry.size(); ++I)
 		{
 			const FNodeRegistration& Reg = Registry[I];
+			if (FilterBuffer[0] != '\0'
+				&& !ContainsCaseInsensitive(Reg.MenuLabel, FilterBuffer)
+				&& !ContainsCaseInsensitive(Reg.TypeName, FilterBuffer))
+			{
+				continue;
+			}
 			ImGui::PushID(static_cast<int32_t>(I));
 
 			// Build the row as a single hovered/clickable block. We use Selectable

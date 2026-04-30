@@ -224,9 +224,13 @@ namespace NodeSynth
 		}
 		ed::EndCreate();
 
-		// Deletion: user presses Delete with links/nodes selected.
+		// Deletion: user presses Delete with links/nodes selected. Wrap the
+		// whole batch in a composite history entry so a multi-select Delete is
+		// a single undoable action.
 		if (ed::BeginDelete())
 		{
+			const bool bHasHistory = History != nullptr;
+			if (bHasHistory) { History->BeginComposite(); }
 			ed::LinkId DeletedLink;
 			while (ed::QueryDeletedLink(&DeletedLink))
 			{
@@ -245,6 +249,7 @@ namespace NodeSynth
 					bChanged = true;
 				}
 			}
+			if (bHasHistory) { History->EndComposite(); }
 		}
 		ed::EndDelete();
 
@@ -284,6 +289,28 @@ namespace NodeSynth
 				if (!bCloneable)
 				{
 					ImGui::TextDisabled("(this node type can't be cloned)");
+				}
+
+				ImGui::Separator();
+
+				if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, bCloneable))
+				{
+					if (auto Clone = Rec->Node->Clone())
+					{
+						const FNodeId NewId = Model.AddNode(Clone,
+							Rec->PositionX + 40.0f, Rec->PositionY + 40.0f);
+						if (NewId != 0)
+						{
+							ed::SetNodePosition(ed::NodeId(NewId),
+								ImVec2(Rec->PositionX + 40.0f, Rec->PositionY + 40.0f));
+							bChanged = true;
+						}
+					}
+				}
+				if (ImGui::MenuItem("Delete", "Del"))
+				{
+					Model.RemoveNode(NodeContextTarget);
+					bChanged = true;
 				}
 			}
 			ImGui::EndPopup();

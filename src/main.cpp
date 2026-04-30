@@ -9,6 +9,7 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include <GLFW/glfw3.h>
@@ -16,9 +17,11 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 #include <miniaudio.h>
+#include <nfd.h>
 
 #include "dsp/Adsr.h"
 #include "dsp/Gain.h"
+#include "dsp/Meter.h"
 #include "dsp/Node.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
@@ -94,6 +97,7 @@ namespace
 		auto Adsr = std::make_shared<FAdsr>();
 		auto Osc = std::make_shared<FOscillator>();
 		auto GainNode = std::make_shared<FGain>();
+		auto MeterNode = std::make_shared<FMeter>();
 		auto Out = std::make_shared<FOutput>();
 
 		// Master gain trimmed to ~1/8 so the 8-voice sum stays inside [-1, 1]
@@ -107,7 +111,8 @@ namespace
 		const FNodeId AdsrId = Model.AddNode(Adsr, 340.0f, 60.0f);
 		const FNodeId OscId = Model.AddNode(Osc, 340.0f, 240.0f);
 		const FNodeId GainId = Model.AddNode(GainNode, 620.0f, 180.0f);
-		const FNodeId OutId = Model.AddNode(Out, 860.0f, 180.0f);
+		const FNodeId MeterId = Model.AddNode(MeterNode, 860.0f, 180.0f);
+		const FNodeId OutId = Model.AddNode(Out, 1100.0f, 180.0f);
 
 		// Mark the synthesis nodes per-voice so the compiler clones them ×8.
 		// The keyboard pushes NoteOn/NoteOff into the audio command queue (no
@@ -120,7 +125,8 @@ namespace
 		Model.AddLink(AllocId, FVoiceAllocator::Output_Frequency, OscId, FOscillator::Input_Frequency);
 		Model.AddLink(AdsrId, 0, OscId, FOscillator::Input_Amplitude);
 		Model.AddLink(OscId, 0, GainId, 0);  // per-voice → mono Audio: synthesised mixer
-		Model.AddLink(GainId, 0, OutId, 0);
+		Model.AddLink(GainId, 0, MeterId, 0);
+		Model.AddLink(MeterId, 0, OutId, 0);
 	}
 
 	// Returns the per-user settings directory (~/.nodesynth/, %USERPROFILE%\.nodesynth\
@@ -149,6 +155,48 @@ namespace
 		std::error_code Ec;
 		std::filesystem::create_directories(Dir, Ec);
 		return Dir;
+	}
+
+	// Native open/save dialog wrappers. Return std::nullopt on cancel or error;
+	// callers fall back to the typed-path popup so a missing OS dialog (rare,
+	// sandboxed environments) doesn't lock the user out.
+	std::optional<std::filesystem::path> OpenFileDialogNative()
+	{
+		nfdu8char_t* OutPath = nullptr;
+		nfdu8filteritem_t Filter[1] = { { "NodeSynth Patch", "json" } };
+		nfdopendialogu8args_t Args = {};
+		Args.filterList = Filter;
+		Args.filterCount = 1;
+		const nfdresult_t Result = NFD_OpenDialogU8_With(&OutPath, &Args);
+		if (Result == NFD_OKAY)
+		{
+			std::filesystem::path P(OutPath);
+			NFD_FreePathU8(OutPath);
+			return P;
+		}
+		return std::nullopt;
+	}
+
+	std::optional<std::filesystem::path> SaveFileDialogNative(const std::filesystem::path& Default)
+	{
+		nfdu8char_t* OutPath = nullptr;
+		nfdu8filteritem_t Filter[1] = { { "NodeSynth Patch", "json" } };
+		nfdsavedialogu8args_t Args = {};
+		Args.filterList = Filter;
+		Args.filterCount = 1;
+		const std::string DefaultStr = Default.empty() ? std::string() : Default.string();
+		if (!DefaultStr.empty())
+		{
+			Args.defaultName = DefaultStr.c_str();
+		}
+		const nfdresult_t Result = NFD_SaveDialogU8_With(&OutPath, &Args);
+		if (Result == NFD_OKAY)
+		{
+			std::filesystem::path P(OutPath);
+			NFD_FreePathU8(OutPath);
+			return P;
+		}
+		return std::nullopt;
 	}
 }
 
@@ -228,6 +276,13 @@ int main()
 	ImGui_ImplGlfw_InitForOpenGL(Window, true);
 	ImGui_ImplOpenGL3_Init(GlslVersion);
 
+	// ---- Native file dialog ------------------------------------------------
+	const bool bNfdReady = (NFD_Init() == NFD_OKAY);
+	if (!bNfdReady)
+	{
+		std::fprintf(stderr, "NFD_Init failed: %s\n", NFD_GetError());
+	}
+
 	// ---- Graph + editor -----------------------------------------------------
 	FGraphModel Model;
 	FEditHistory EditHistory;
@@ -250,6 +305,46 @@ int main()
 	FAudioState AudioState;
 	AudioState.Graph.store(Model.Compile(48000.0));
 	EditorPanel.SetCommandRing(&AudioState.Commands);
+
+	// Apply a load. Returns true on success, sets CurrentPatchPath, etc.
+	// Defined after AudioState because the closures capture it.
+	auto DoLoadPatch = [&](const std::filesystem::path& P) -> bool
+	{
+		auto Loaded = LoadPatch(P);
+		if (!Loaded)
+		{
+			return false;
+		}
+		Model = std::move(Loaded->Model);
+		Model.SetHistory(&EditHistory);
+		EditHistory.Clear();  // loaded patch is the new ground state
+		EditorPanel.OnModelReplaced();
+		CurrentPatchPath = P;
+		auto NewSnapshot = Model.Compile(AudioState.SampleRate.load());
+		if (!Model.GetLastCompileError().bHasError)
+		{
+			AudioState.Graph.store(std::move(NewSnapshot));
+		}
+		for (const auto& Cmd : Loaded->InitialParams)
+		{
+			AudioState.Commands.Push(Cmd);
+		}
+		return true;
+	};
+
+	auto DoSavePatch = [&](const std::filesystem::path& P) -> bool
+	{
+		if (P.empty())
+		{
+			return false;
+		}
+		if (!SavePatch(Model, P))
+		{
+			return false;
+		}
+		CurrentPatchPath = P;
+		return true;
+	};
 
 	// ---- miniaudio ----------------------------------------------------------
 	ma_device_config Config = ma_device_config_init(ma_device_type_playback);
@@ -320,7 +415,20 @@ int main()
 				}
 				if (ImGui::MenuItem("Open..."))
 				{
-					bOpenLoadPopup = true;
+					if (bNfdReady)
+					{
+						if (auto P = OpenFileDialogNative())
+						{
+							if (!DoLoadPatch(*P))
+							{
+								std::fprintf(stderr, "Load failed for %s\n", P->string().c_str());
+							}
+						}
+					}
+					else
+					{
+						bOpenLoadPopup = true;
+					}
 				}
 				if (ImGui::MenuItem("Save", nullptr, false, !CurrentPatchPath.empty()))
 				{
@@ -328,7 +436,27 @@ int main()
 				}
 				if (ImGui::MenuItem("Save As..."))
 				{
-					bOpenSavePopup = true;
+					if (bNfdReady)
+					{
+						if (auto P = SaveFileDialogNative(CurrentPatchPath))
+						{
+							// nfd-extended doesn't auto-add the filter extension
+							// on every platform — make sure .json is on the path.
+							std::filesystem::path Path = *P;
+							if (Path.extension().empty())
+							{
+								Path += ".json";
+							}
+							if (!DoSavePatch(Path))
+							{
+								std::fprintf(stderr, "Save failed for %s\n", Path.string().c_str());
+							}
+						}
+					}
+					else
+					{
+						bOpenSavePopup = true;
+					}
 				}
 				ImGui::EndMenu();
 			}
@@ -410,9 +538,8 @@ int main()
 				{
 					PopupErrorMsg = "Path is empty.";
 				}
-				else if (SavePatch(Model, P))
+				else if (DoSavePatch(P))
 				{
-					CurrentPatchPath = P;
 					ImGui::CloseCurrentPopup();
 				}
 				else
@@ -440,23 +567,8 @@ int main()
 			if (ImGui::Button("Open"))
 			{
 				const std::filesystem::path P(PathInputBuffer.c_str());
-				auto Loaded = LoadPatch(P);
-				if (Loaded)
+				if (DoLoadPatch(P))
 				{
-					Model = std::move(Loaded->Model);
-					Model.SetHistory(&EditHistory);
-					EditHistory.Clear();  // loaded patch is the new ground state
-					EditorPanel.OnModelReplaced();
-					CurrentPatchPath = P;
-					auto NewSnapshot = Model.Compile(AudioState.SampleRate.load());
-					if (!Model.GetLastCompileError().bHasError)
-					{
-						AudioState.Graph.store(std::move(NewSnapshot));
-					}
-					for (const auto& Cmd : Loaded->InitialParams)
-					{
-						AudioState.Commands.Push(Cmd);
-					}
 					ImGui::CloseCurrentPopup();
 				}
 				else
@@ -488,7 +600,7 @@ int main()
 		}
 		if (bRequestSave && !CurrentPatchPath.empty())
 		{
-			SavePatch(Model, CurrentPatchPath);
+			DoSavePatch(CurrentPatchPath);
 		}
 		if (bRequestUndo && EditHistory.Undo(Model))
 		{
@@ -567,6 +679,11 @@ int main()
 	// Drop the current graph before ImGui shutdown so any node destructors run
 	// on the UI thread (and well before the audio thread is gone).
 	AudioState.Graph.store(nullptr);
+
+	if (bNfdReady)
+	{
+		NFD_Quit();
+	}
 
 	ImGui_ImplOpenGL3_Shutdown();
 	ImGui_ImplGlfw_Shutdown();

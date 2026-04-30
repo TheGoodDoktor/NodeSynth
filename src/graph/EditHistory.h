@@ -67,6 +67,10 @@ namespace NodeSynth
 	// Linear undo + redo stack with a fixed cap. New user edits drop the redo
 	// stack. Patch load and other "system" rewrites bypass via FGraphModel's
 	// SetRecordHistory(false).
+	//
+	// Composite groups: between Begin/EndComposite, all Push() calls accumulate
+	// into a single undoable unit. Used for multi-select batch ops so a single
+	// Delete-key press on N selected nodes produces 1 undo entry, not N.
 	class FEditHistory
 	{
 	public:
@@ -76,6 +80,10 @@ namespace NodeSynth
 		bool Undo(FGraphModel& Model);
 		bool Redo(FGraphModel& Model);
 
+		// Composite/transaction support.
+		void BeginComposite();
+		void EndComposite();
+
 		bool CanUndo() const { return !UndoStack.empty(); }
 		bool CanRedo() const { return !RedoStack.empty(); }
 
@@ -83,6 +91,8 @@ namespace NodeSynth
 		{
 			UndoStack.clear();
 			RedoStack.clear();
+			bInComposite = false;
+			CurrentComposite.clear();
 		}
 
 		// Test accessors.
@@ -90,10 +100,19 @@ namespace NodeSynth
 		size_t RedoSize() const { return RedoStack.size(); }
 
 	private:
+		// One undoable unit. Always at least one command for a normal Push;
+		// can be many for a composite group.
+		using FUndoEntry = std::vector<FEditCommand>;
+
 		// Apply Cmd to Model. bForward = true → redo, false → undo.
 		void Apply(const FEditCommand& Cmd, FGraphModel& Model, bool bForward);
+		// Apply an entire entry (in reverse order for undo, forward for redo).
+		void ApplyEntry(const FUndoEntry& Entry, FGraphModel& Model, bool bForward);
 
-		std::vector<FEditCommand> UndoStack;
-		std::vector<FEditCommand> RedoStack;
+		std::vector<FUndoEntry> UndoStack;
+		std::vector<FUndoEntry> RedoStack;
+
+		bool bInComposite = false;
+		FUndoEntry CurrentComposite;
 	};
 }
