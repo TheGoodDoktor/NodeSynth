@@ -30,6 +30,7 @@
 #include "graph/EditHistory.h"
 #include "graph/Graph.h"
 #include "io/PatchSerializer.h"
+#include "io/PresetBrowser.h"
 #include "ui/Editor.h"
 #include "ui/Palette.h"
 
@@ -302,6 +303,14 @@ int main()
 	bool bOpenLoadPopup = false;
 	std::string PopupErrorMsg;
 
+	// Preset menu: bundled presets shipped next to the binary, plus user
+	// presets in ~/.nodesynth/user_presets/. Scanned at startup; a "Refresh"
+	// item rebuilds the index without restarting the app.
+	const std::filesystem::path BundledPresetDir = GetBundledPresetDir();
+	const std::filesystem::path UserPresetDir = GetSettingsDir() / "user_presets";
+	FPresetIndex PresetIndex = BuildPresetIndex(BundledPresetDir, UserPresetDir);
+	std::filesystem::path PendingPresetLoad;
+
 	FAudioState AudioState;
 	AudioState.Graph.store(Model.Compile(48000.0));
 	EditorPanel.SetCommandRing(&AudioState.Commands);
@@ -454,6 +463,31 @@ int main()
 						bOpenLoadPopup = true;
 					}
 				}
+				if (ImGui::BeginMenu("Presets", !PresetIndex.IsEmpty()))
+				{
+					for (const FPresetCategory& Cat : PresetIndex.Categories)
+					{
+						const bool bRoot = Cat.Name.empty();
+						const bool bOpenSub = bRoot ? true : ImGui::BeginMenu(Cat.Name.c_str());
+						if (bOpenSub)
+						{
+							for (const FPresetEntry& E : Cat.Entries)
+							{
+								if (ImGui::MenuItem(E.DisplayName.c_str()))
+								{
+									PendingPresetLoad = E.FullPath;
+								}
+							}
+							if (!bRoot) { ImGui::EndMenu(); }
+						}
+					}
+					ImGui::Separator();
+					if (ImGui::MenuItem("Refresh"))
+					{
+						PresetIndex = BuildPresetIndex(BundledPresetDir, UserPresetDir);
+					}
+					ImGui::EndMenu();
+				}
 				if (ImGui::MenuItem("Save", nullptr, false, !CurrentPatchPath.empty()))
 				{
 					bRequestSave = true;
@@ -502,6 +536,18 @@ int main()
 				ImGui::TextDisabled("  [%s]", Label.c_str());
 			}
 			ImGui::EndMainMenuBar();
+		}
+
+		// Apply a pending preset load deferred from inside the menu loop, so
+		// the menu has fully torn down before Model / EditHistory mutate.
+		if (!PendingPresetLoad.empty())
+		{
+			if (!DoLoadPatch(PendingPresetLoad))
+			{
+				std::fprintf(stderr, "Preset load failed for %s\n",
+					PendingPresetLoad.string().c_str());
+			}
+			PendingPresetLoad.clear();
 		}
 
 		// Hotkeys: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z. Gated on no active text input

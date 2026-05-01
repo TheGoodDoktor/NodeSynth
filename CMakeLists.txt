@@ -175,6 +175,32 @@ else()
     target_compile_options(nodesynth PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+# ---- Bundled presets --------------------------------------------------------
+# Mirror the source-tree presets/ folder into the build output so the running
+# exe finds them next to itself. macOS bundles use the Resources directory
+# convention; everything else drops them next to the binary.
+set(NODESYNTH_PRESET_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/presets")
+if(EXISTS "${NODESYNTH_PRESET_SOURCE_DIR}")
+    if(APPLE)
+        # Copy each preset .json into the .app bundle's Resources/presets/.
+        file(GLOB_RECURSE NODESYNTH_PRESET_FILES CONFIGURE_DEPENDS
+            "${NODESYNTH_PRESET_SOURCE_DIR}/*.json")
+        foreach(PRESET_FILE IN LISTS NODESYNTH_PRESET_FILES)
+            file(RELATIVE_PATH PRESET_REL "${NODESYNTH_PRESET_SOURCE_DIR}" "${PRESET_FILE}")
+            get_filename_component(PRESET_REL_DIR "${PRESET_REL}" DIRECTORY)
+            target_sources(nodesynth PRIVATE "${PRESET_FILE}")
+            set_source_files_properties("${PRESET_FILE}" PROPERTIES
+                MACOSX_PACKAGE_LOCATION "Resources/presets/${PRESET_REL_DIR}")
+        endforeach()
+    else()
+        add_custom_command(TARGET nodesynth POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${NODESYNTH_PRESET_SOURCE_DIR}"
+                "$<TARGET_FILE_DIR:nodesynth>/presets"
+            COMMENT "Copying bundled presets next to nodesynth binary")
+    endif()
+endif()
+
 # ---- Tests (Catch2 v3) ------------------------------------------------------
 option(NODESYNTH_BUILD_TESTS "Build NodeSynth unit tests" ON)
 if(NODESYNTH_BUILD_TESTS)

@@ -1,0 +1,125 @@
+{
+  "links": [
+    {
+      "from_node": 2,
+      "from_port": 0,
+      "id": 1,
+      "to_node": 3,
+      "to_port": 0
+    },
+    {
+      "from_node": 2,
+      "from_port": 1,
+      "id": 2,
+      "to_node": 4,
+      "to_port": 0
+    },
+    {
+      "from_node": 3,
+      "from_port": 0,
+      "id": 3,
+      "to_node": 4,
+      "to_port": 1
+    },
+    {
+      "from_node": 4,
+      "from_port": 0,
+      "id": 4,
+      "to_node": 5,
+      "to_port": 0
+    },
+    {
+      "from_node": 5,
+      "from_port": 0,
+      "id": 5,
+      "to_node": 6,
+      "to_port": 0
+    },
+    {
+      "from_node": 6,
+      "from_port": 0,
+      "id": 6,
+      "to_node": 7,
+      "to_port": 0
+    }
+  ],
+  "metadata": {
+    "author": "NodeSynth",
+    "bpm": 120.0,
+    "name": "Pluck",
+    "notes": "Triangle pluck — fast attack, decay-only envelope (sustain=0).",
+    "sample_rate_hint": 48000.0
+  },
+  "nodes": [
+    {
+      "id": 1,
+      "params": {
+        "Mod": 0.0,
+        "Octave": 4.0,
+        "Velocity": 0.800000011920929
+      },
+      "type": "VirtualKbd",
+      "x": 60.0,
+      "y": 60.0
+    },
+    {
+      "id": 2,
+      "params": {
+        "Glide": 0.0,
+        "NumVoices": 3.0
+      },
+      "type": "VoiceAllocator",
+      "x": 60.0,
+      "y": 240.0
+    },
+    {
+      "id": 3,
+      "params": {
+        "Attack": 1.0,
+        "Decay": 250.0,
+        "Release": 250.0,
+        "Sustain": 0.0
+      },
+      "per_voice": true,
+      "type": "ADSR",
+      "x": 340.0,
+      "y": 60.0
+    },
+    {
+      "id": 4,
+      "params": {
+        "Amplitude": 0.30000001192092896,
+        "Frequency": 440.0,
+        "Shape": 3.0
+      },
+      "per_voice": true,
+      "type": "Oscillator",
+      "x": 340.0,
+      "y": 240.0
+    },
+    {
+      "id": 5,
+      "params": {
+        "Gain": 0.18000000715255737
+      },
+      "type": "Gain",
+      "x": 620.0,
+      "y": 180.0
+    },
+    {
+      "id": 6,
+      "params": {},
+      "type": "Meter",
+      "x": 860.0,
+      "y": 180.0
+    },
+    {
+      "id": 7,
+      "params": {},
+      "type": "Output",
+      "x": 1100.0,
+      "y": 180.0
+    }
+  ],
+  "version": 1
+}
