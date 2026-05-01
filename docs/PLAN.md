@@ -135,6 +135,8 @@ Features:
 - Presets browser.
 - Multi-channel / stereo paths.
 - Oversampling for nonlinear nodes.
+- **Chorus** node (multi-tap delay modulated by a slow LFO; depth, rate, mix, voices). Patchable today via `LFO → Delay.Time + Mix`, but a dedicated node ships sensible defaults and stereo voices for free once stereo lands.
+- **Flanger** node (short modulated delay 1–10 ms with feedback; depth, rate, feedback, mix). Same patch-vs-node tradeoff as Chorus — feedback path makes the dedicated node clearly worthwhile.
 - VST3 wrapper (optional, large).
 
 ---
