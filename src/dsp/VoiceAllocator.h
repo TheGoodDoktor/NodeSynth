@@ -173,8 +173,12 @@ namespace NodeSynth
 			return VoiceBuffers[VoiceIndex][PortIndex];
 		}
 
-		float* GetOutputBuffer(uint32_t Index) override
+		float* GetOutputBuffer(uint32_t Index, uint32_t Channel = 0) override
 		{
+			// Voice allocator is mono on all outputs. Returning the same buffer
+			// for both channels makes a downstream stereo-aware consumer see
+			// the allocator's signal on L and R alike.
+			(void)Channel;
 			return (Index < NumPorts) ? VoiceBuffers[0][Index] : nullptr;
 		}
 

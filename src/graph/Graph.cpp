@@ -562,8 +562,9 @@ namespace NodeSynth
 				Mixer->Prepare(SampleRate);
 				for (size_t V = 0; V < NumVoices; ++V)
 				{
-					Mixer->SetInputBuffer(static_cast<uint32_t>(V),
-						GetVoiceSourceBuffer(L.FromNode, L.FromPort, V));
+					float* VBuf = GetVoiceSourceBuffer(L.FromNode, L.FromPort, V);
+					Mixer->SetInputBuffer(static_cast<uint32_t>(V), VBuf, 0);
+					Mixer->SetInputBuffer(static_cast<uint32_t>(V), VBuf, 1);
 				}
 				Mixers.emplace(Key, std::move(Mixer));
 			}
@@ -583,7 +584,8 @@ namespace NodeSynth
 					const uint32_t NumIn = static_cast<uint32_t>(Clone->GetInputPorts().size());
 					for (uint32_t I = 0; I < NumIn; ++I)
 					{
-						Clone->SetInputBuffer(I, nullptr);
+						Clone->SetInputBuffer(I, nullptr, 0);
+						Clone->SetInputBuffer(I, nullptr, 1);
 					}
 					OrderedNodes.push_back(Clone);
 				}
@@ -595,7 +597,8 @@ namespace NodeSynth
 				const uint32_t NumIn = static_cast<uint32_t>(Node->GetInputPorts().size());
 				for (uint32_t I = 0; I < NumIn; ++I)
 				{
-					Node->SetInputBuffer(I, nullptr);
+					Node->SetInputBuffer(I, nullptr, 0);
+					Node->SetInputBuffer(I, nullptr, 1);
 				}
 				OrderedNodes.push_back(Node);
 			}
@@ -624,11 +627,18 @@ namespace NodeSynth
 			const bool bFromPoly = IsPolyClass(FromC);
 			const bool bToPoly = (ToC == EClass::PerVoice && Clones.count(L.ToNode) > 0);
 
+			// Until any node opts into stereo output, every producer is mono —
+			// channel 0 carries signal, channel 1 stays at zero. Plumb both
+			// dest channels at the source's L buffer so a downstream stereo-
+			// aware node (e.g. the audio sink) sees the same content on R.
+			// A future stereo producer will overwrite this for its own ports
+			// to plumb L→L, R→R instead of broadcast.
 			if (!bFromPoly && !bToPoly)
 			{
 				// Mono → Mono.
 				float* Buf = Nodes.at(L.FromNode).Node->GetOutputBuffer(L.FromPort);
-				Nodes.at(L.ToNode).Node->SetInputBuffer(L.ToPort, Buf);
+				Nodes.at(L.ToNode).Node->SetInputBuffer(L.ToPort, Buf, 0);
+				Nodes.at(L.ToNode).Node->SetInputBuffer(L.ToPort, Buf, 1);
 			}
 			else if (!bFromPoly && bToPoly)
 			{
@@ -636,7 +646,8 @@ namespace NodeSynth
 				float* Buf = Nodes.at(L.FromNode).Node->GetOutputBuffer(L.FromPort);
 				for (auto& Clone : Clones.at(L.ToNode))
 				{
-					Clone->SetInputBuffer(L.ToPort, Buf);
+					Clone->SetInputBuffer(L.ToPort, Buf, 0);
+					Clone->SetInputBuffer(L.ToPort, Buf, 1);
 				}
 			}
 			else if (bFromPoly && bToPoly)
@@ -644,8 +655,9 @@ namespace NodeSynth
 				// PerVoice / VoiceAlloc → PerVoice: paired voice-i to voice-i.
 				for (size_t V = 0; V < NumVoices; ++V)
 				{
-					Clones.at(L.ToNode)[V]->SetInputBuffer(L.ToPort,
-						GetVoiceSourceBuffer(L.FromNode, L.FromPort, V));
+					float* VBuf = GetVoiceSourceBuffer(L.FromNode, L.FromPort, V);
+					Clones.at(L.ToNode)[V]->SetInputBuffer(L.ToPort, VBuf, 0);
+					Clones.at(L.ToNode)[V]->SetInputBuffer(L.ToPort, VBuf, 1);
 				}
 			}
 			else
@@ -655,8 +667,9 @@ namespace NodeSynth
 				auto It = Mixers.find(Key);
 				if (It != Mixers.end())
 				{
-					Nodes.at(L.ToNode).Node->SetInputBuffer(L.ToPort,
-						It->second->GetOutputBuffer(0));
+					float* MixBuf = It->second->GetOutputBuffer(0);
+					Nodes.at(L.ToNode).Node->SetInputBuffer(L.ToPort, MixBuf, 0);
+					Nodes.at(L.ToNode).Node->SetInputBuffer(L.ToPort, MixBuf, 1);
 				}
 			}
 		}

@@ -69,3 +69,37 @@ TEST_CASE("Compiled graph produces a non-zero sine through Osc -> Gain -> Output
 	}
 	REQUIRE(bAnyNonZero);
 }
+
+TEST_CASE("Compile broadcasts a mono producer's L buffer onto the consumer's R input", "[graph][stereo]")
+{
+	// Phase 5b wire-level broadcast: until any node opts into stereo output,
+	// every link plumbs the source's L buffer into both L and R of the
+	// destination, so a stereo-aware consumer (e.g. the audio sink) sees the
+	// same content on both channels of its mono input.
+	FGraphModel Model;
+	auto Osc = std::make_shared<FOscillator>();
+	auto Out = std::make_shared<FOutput>();
+	const FNodeId OscId = Model.AddNode(Osc);
+	const FNodeId OutId = Model.AddNode(Out);
+	REQUIRE(Model.AddLink(OscId, 0, OutId, 0) != 0);
+
+	auto AudioGraph = Model.Compile(48000.0);
+	REQUIRE(AudioGraph->OutputNode != nullptr);
+
+	FProcessContext Ctx;
+	Ctx.BlockSize = BlockSize;
+	Ctx.SampleRate = 48000.0;
+	AudioGraph->Process(Ctx);
+
+	const float* InL = AudioGraph->OutputNode->GetInputBuffer(0, 0);
+	const float* InR = AudioGraph->OutputNode->GetInputBuffer(0, 1);
+	REQUIRE(InL != nullptr);
+	REQUIRE(InR != nullptr);
+	// Mono producer → both pointers alias the same buffer.
+	REQUIRE(InL == InR);
+	// Belt-and-braces: also verify the values match sample-by-sample.
+	for (uint32_t I = 0; I < Ctx.BlockSize; ++I)
+	{
+		REQUIRE(InL[I] == InR[I]);
+	}
+}

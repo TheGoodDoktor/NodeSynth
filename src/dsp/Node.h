@@ -11,6 +11,15 @@ namespace NodeSynth
 	// Process() call. Picked from the plan's Phase 1 "decisions to lock early".
 	inline constexpr uint32_t BlockSize = 64;
 
+	// Audio buffers are 2-channel (L/R). Control buffers reuse the same storage
+	// shape but only channel 0 carries signal — control rate stays mono per the
+	// Phase 5 design (`docs/PLAN-PHASE-5.md` §1.1). Phase 5b lands the buffer
+	// widening + plumbing; existing mono nodes write to channel 0 only and the
+	// graph compiler broadcasts a mono producer's channel 0 into both L and R
+	// of every consumer (wire-level broadcast — no per-sample copy). True
+	// stereo behaviour (Reverb, Delay, Chorus, Flanger) lands in 5c+.
+	inline constexpr uint32_t NumChannels = 2;
+
 	using FNodeId = uint64_t;
 	using FLinkId = uint64_t;
 
@@ -90,13 +99,18 @@ namespace NodeSynth
 
 		// Buffer routing. Set by graph compilation (UI thread), read during Process (audio thread).
 		// Pointers remain valid for the lifetime of the compiled FAudioGraph snapshot that owns them.
-		virtual void SetInputBuffer(uint32_t Index, const float* Buffer) = 0;
-		virtual const float* GetInputBuffer(uint32_t Index) const = 0;
-		virtual float* GetOutputBuffer(uint32_t Index) = 0;
+		// Channel 0 = L, channel 1 = R. The default of 0 keeps existing single-channel callsites
+		// reading/writing the L channel; stereo-aware nodes pass an explicit channel index.
+		virtual void SetInputBuffer(uint32_t Index, const float* Buffer, uint32_t Channel = 0) = 0;
+		virtual const float* GetInputBuffer(uint32_t Index, uint32_t Channel = 0) const = 0;
+		virtual float* GetOutputBuffer(uint32_t Index, uint32_t Channel = 0) = 0;
 	};
 
 	// Convenience base that provides fixed-size input-pointer and output-buffer storage.
 	// NumInputs/NumOutputs of 0 still reserves one slot to keep the array non-empty.
+	// Buffers are 2-channel (L/R); mono nodes only ever write to channel 0 and the
+	// graph compiler arranges for channel 1 of every consumer to alias channel 0 of
+	// a mono producer (wire-level broadcast).
 	template<uint32_t InNumInputs, uint32_t InNumOutputs>
 	class TNodeBase : public INode
 	{
@@ -104,29 +118,29 @@ namespace NodeSynth
 		static constexpr uint32_t NumInputs = InNumInputs;
 		static constexpr uint32_t NumOutputs = InNumOutputs;
 
-		void SetInputBuffer(uint32_t Index, const float* Buffer) override
+		void SetInputBuffer(uint32_t Index, const float* Buffer, uint32_t Channel = 0) override
 		{
-			if (Index < NumInputs)
+			if (Index < NumInputs && Channel < NumChannels)
 			{
-				InputBuffers[Index] = Buffer;
+				InputBuffers[Index][Channel] = Buffer;
 			}
 		}
 
-		const float* GetInputBuffer(uint32_t Index) const override
+		const float* GetInputBuffer(uint32_t Index, uint32_t Channel = 0) const override
 		{
-			return (Index < NumInputs) ? InputBuffers[Index] : nullptr;
+			return (Index < NumInputs && Channel < NumChannels) ? InputBuffers[Index][Channel] : nullptr;
 		}
 
-		float* GetOutputBuffer(uint32_t Index) override
+		float* GetOutputBuffer(uint32_t Index, uint32_t Channel = 0) override
 		{
-			return (Index < NumOutputs) ? OutputBuffers[Index] : nullptr;
+			return (Index < NumOutputs && Channel < NumChannels) ? OutputBuffers[Index][Channel] : nullptr;
 		}
 
 	protected:
 		static constexpr uint32_t InputSlots = (NumInputs > 0) ? NumInputs : 1;
 		static constexpr uint32_t OutputSlots = (NumOutputs > 0) ? NumOutputs : 1;
 
-		const float* InputBuffers[InputSlots] = {};
-		alignas(16) float OutputBuffers[OutputSlots][BlockSize] = {};
+		const float* InputBuffers[InputSlots][NumChannels] = {};
+		alignas(16) float OutputBuffers[OutputSlots][NumChannels][BlockSize] = {};
 	};
 }

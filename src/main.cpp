@@ -64,20 +64,31 @@ namespace
 			Ctx.BlockSize = Block;
 			Ctx.SampleRate = SampleRate;
 
-			const float* OutputBuf = nullptr;
+			// Read both channels from the sink. Phase 5b plumbs channel 1 to
+			// alias channel 0 for mono producers, so OutputBufR == OutputBufL
+			// in practice until a stereo-aware node arrives — at which point
+			// the L/R streams diverge and the device's L/R speakers diverge
+			// with them. Mono devices (Channels == 1) take the L channel only.
+			const float* OutputBufL = nullptr;
+			const float* OutputBufR = nullptr;
 			if (Graph && Graph->OutputNode)
 			{
 				Graph->DrainCommands(State->Commands);
 				Graph->Process(Ctx);
-				OutputBuf = Graph->OutputNode->GetInputBuffer(0);
+				OutputBufL = Graph->OutputNode->GetInputBuffer(0, 0);
+				OutputBufR = Graph->OutputNode->GetInputBuffer(0, 1);
 			}
 
 			for (uint32_t I = 0; I < Block; ++I)
 			{
-				const float Sample = OutputBuf ? OutputBuf[I] : 0.0f;
+				const float SampleL = OutputBufL ? OutputBufL[I] : 0.0f;
+				const float SampleR = OutputBufR ? OutputBufR[I] : SampleL;
 				for (uint32_t C = 0; C < Channels; ++C)
 				{
-					Cursor[I * Channels + C] = Sample;
+					// Even-indexed device channels = L, odd = R. Anything past
+					// channel 1 (5.1 surround etc.) gets R duplicated, which
+					// is the same behaviour we shipped before the stereo split.
+					Cursor[I * Channels + C] = (C == 0) ? SampleL : SampleR;
 				}
 			}
 
