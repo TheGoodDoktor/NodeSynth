@@ -10,6 +10,60 @@ using NodeSynth::BlockSize;
 using NodeSynth::FDelay;
 using NodeSynth::FProcessContext;
 
+TEST_CASE("FDelay: stereo input produces stereo output through two independent lines", "[delay][stereo]")
+{
+	// Phase 5b.3 splits FDelay into two parallel delay lines. Same TimeMs /
+	// Feedback / Tone params on both, so identical inputs produce identical
+	// outputs — but distinct L and R inputs stay distinct end-to-end.
+	FDelay Delay;
+	Delay.SetParamValue(FDelay::Param_TimeMs, 50.0f);
+	Delay.SetParamValue(FDelay::Param_Feedback, 0.4f);
+	Delay.SetParamValue(FDelay::Param_Tone, 1.0f);
+	Delay.Prepare(48000.0);
+
+	REQUIRE(Delay.IsOutputStereo(0));
+
+	std::vector<float> InL(BlockSize, 0.0f);
+	std::vector<float> InR(BlockSize, 0.0f);
+	InL[0] = 1.0f;     // impulse on L only
+	InR[10] = 1.0f;    // impulse on R offset by 10 samples
+
+	Delay.SetInputBuffer(FDelay::Input_Audio, InL.data(), 0);
+	Delay.SetInputBuffer(FDelay::Input_Audio, InR.data(), 1);
+
+	// 50 ms @ 48 kHz = 2400 samples = 38 blocks. Run a few blocks to let
+	// the delayed impulse appear, then assert L and R differ.
+	std::vector<float> OutL;
+	std::vector<float> OutR;
+	std::vector<float> Quiet(BlockSize, 0.0f);
+	FProcessContext C;
+	C.BlockSize = BlockSize;
+	C.SampleRate = 48000.0;
+	for (uint32_t B = 0; B < 50; ++B)
+	{
+		Delay.Process(C);
+		const float* OL = Delay.GetOutputBuffer(0, 0);
+		const float* OR = Delay.GetOutputBuffer(0, 1);
+		REQUIRE(OL != OR);
+		for (uint32_t I = 0; I < BlockSize; ++I)
+		{
+			OutL.push_back(OL[I]);
+			OutR.push_back(OR[I]);
+		}
+		Delay.SetInputBuffer(FDelay::Input_Audio, Quiet.data(), 0);
+		Delay.SetInputBuffer(FDelay::Input_Audio, Quiet.data(), 1);
+	}
+
+	// Sum of absolute differences must be non-zero — the two impulses are
+	// 10 samples apart on input and stay 10 samples apart through the delay.
+	double TotalDiff = 0.0;
+	for (size_t I = 0; I < OutL.size(); ++I)
+	{
+		TotalDiff += std::fabs(OutL[I] - OutR[I]);
+	}
+	REQUIRE(TotalDiff > 0.001);
+}
+
 namespace
 {
 	FProcessContext Ctx(double Sr = 48000.0)

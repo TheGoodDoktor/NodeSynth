@@ -11,12 +11,15 @@
 namespace NodeSynth
 {
 	// Feedback delay line with linear-interpolated fractional read tap and a
-	// one-pole low-pass tone control on the feedback path. The delay buffer
-	// (sized for 2 seconds of audio) is allocated once in Prepare; Process
-	// performs no allocation. Modulating the delay time via the Control input
-	// is intentionally NOT smoothed at the buffer level — an LFO feeding the
-	// time port will modulate exactly as written. Slider drags on the param
-	// are smoothed via FOnePoleSmoother to avoid zipper.
+	// one-pole low-pass tone control on the feedback path. Two independent
+	// lines (one per channel); both share the Time / Feedback / Tone params,
+	// so a stereo input produces stereo output but a mono input produces
+	// identical L and R until a future Stereo Spread param decorrelates them.
+	// The delay buffers (each sized for 2 seconds of audio) are allocated once
+	// in Prepare; Process performs no allocation. Modulating the delay time
+	// via the Control input is intentionally NOT smoothed at the buffer level
+	// — an LFO feeding the time port will modulate exactly as written. Slider
+	// drags on the param are smoothed via FOnePoleSmoother to avoid zipper.
 	class FDelay : public TNodeBase<2, 1>
 	{
 	public:
@@ -50,7 +53,13 @@ namespace NodeSynth
 		std::vector<FPortInfo> GetOutputPorts() const override
 		{
 			return { { "Out", EPortType::Audio,
-				"Wet (delayed) signal. Mix with the dry input externally for a wet/dry blend." } };
+				"Wet (delayed) signal, stereo. Mix with the dry input externally\n"
+				"for a wet/dry blend." } };
+		}
+
+		bool IsOutputStereo(uint32_t Index) const override
+		{
+			return Index == 0;
 		}
 
 		std::vector<FParamInfo> GetParamInfos() const override
@@ -113,9 +122,12 @@ namespace NodeSynth
 		{
 			SampleRate = InSampleRate;
 			Capacity = static_cast<size_t>(InSampleRate * MaxDelaySeconds) + 4;  // +4 for interp safety
-			Buffer.assign(Capacity, 0.0f);
-			WriteIndex = 0;
-			DamperState = 0.0f;
+			Lines[0].Buffer.assign(Capacity, 0.0f);
+			Lines[0].WriteIndex = 0;
+			Lines[0].DamperState = 0.0f;
+			Lines[1].Buffer.assign(Capacity, 0.0f);
+			Lines[1].WriteIndex = 0;
+			Lines[1].DamperState = 0.0f;
 
 			TimeSmoother.Prepare(InSampleRate);
 			TimeSmoother.Reset(TimeMs.load(std::memory_order_relaxed));
@@ -123,9 +135,11 @@ namespace NodeSynth
 
 		void Process(const FProcessContext& Ctx) override
 		{
-			float* Out = GetOutputBuffer(0);
-			const float* AudioIn = GetInputBuffer(Input_Audio);
-			const float* TimeIn = GetInputBuffer(Input_TimeMs);
+			float* OutL = GetOutputBuffer(0, 0);
+			float* OutR = GetOutputBuffer(0, 1);
+			const float* AudioInL = GetInputBuffer(Input_Audio, 0);
+			const float* AudioInR = GetInputBuffer(Input_Audio, 1);
+			const float* TimeIn = GetInputBuffer(Input_TimeMs, 0);
 
 			const float FeedbackNow = Feedback.load(std::memory_order_relaxed);
 			const float ToneNow = Tone.load(std::memory_order_relaxed);
@@ -157,39 +171,53 @@ namespace NodeSynth
 
 				const int32_t Floor = static_cast<int32_t>(DelaySamples);
 				const float Frac = DelaySamples - static_cast<float>(Floor);
-
-				// Linear interpolation between the integer-Floor and Floor+1
-				// taps. Modulo via signed arithmetic + capacity wrap.
 				const int32_t Cap = static_cast<int32_t>(Capacity);
-				const int32_t IdxNewer = (static_cast<int32_t>(WriteIndex) - Floor + Cap) % Cap;
-				const int32_t IdxOlder = (static_cast<int32_t>(WriteIndex) - Floor - 1 + Cap) % Cap;
-				const float Newer = Buffer[static_cast<size_t>(IdxNewer)];
-				const float Older = Buffer[static_cast<size_t>(IdxOlder)];
-				const float Delayed = (1.0f - Frac) * Newer + Frac * Older;
 
-				// One-pole low-pass on the feedback path. ToneNow ∈ [0.05, 1].
-				DamperState += ToneNow * (Delayed - DamperState);
+				const float DryInL = (AudioInL != nullptr) ? AudioInL[I] : 0.0f;
+				const float DryInR = (AudioInR != nullptr) ? AudioInR[I] : DryInL;
 
-				// Write input + feedback (taken from the damped delayed signal).
-				const float DryIn = (AudioIn != nullptr) ? AudioIn[I] : 0.0f;
-				Buffer[WriteIndex] = DryIn + FeedbackNow * DamperState;
-
-				Out[I] = Delayed;
-
-				++WriteIndex;
-				if (WriteIndex >= Capacity)
-				{
-					WriteIndex = 0;
-				}
+				OutL[I] = ProcessLine(Lines[0], DryInL, Floor, Frac, Cap, FeedbackNow, ToneNow);
+				OutR[I] = ProcessLine(Lines[1], DryInR, Floor, Frac, Cap, FeedbackNow, ToneNow);
 			}
 		}
 
 		// Test / debug accessor — used to confirm the buffer doesn't reallocate
-		// across Process calls.
-		const float* GetBufferData() const { return Buffer.data(); }
+		// across Process calls. Returns the L line's buffer.
+		const float* GetBufferData() const { return Lines[0].Buffer.data(); }
 		size_t GetCapacity() const { return Capacity; }
 
 	private:
+		struct FLine
+		{
+			std::vector<float> Buffer;
+			size_t WriteIndex = 0;
+			float DamperState = 0.0f;
+		};
+
+		// Single-channel sample step. Pulled out of the per-sample loop so the
+		// L and R lines run identical DSP without copy-paste.
+		static float ProcessLine(FLine& Line, float DryIn, int32_t Floor, float Frac,
+			int32_t Cap, float FeedbackNow, float ToneNow)
+		{
+			// Linear interpolation between the integer-Floor and Floor+1 taps.
+			const int32_t IdxNewer = (static_cast<int32_t>(Line.WriteIndex) - Floor + Cap) % Cap;
+			const int32_t IdxOlder = (static_cast<int32_t>(Line.WriteIndex) - Floor - 1 + Cap) % Cap;
+			const float Newer = Line.Buffer[static_cast<size_t>(IdxNewer)];
+			const float Older = Line.Buffer[static_cast<size_t>(IdxOlder)];
+			const float Delayed = (1.0f - Frac) * Newer + Frac * Older;
+
+			// One-pole low-pass on the feedback path. ToneNow ∈ [0.05, 1].
+			Line.DamperState += ToneNow * (Delayed - Line.DamperState);
+
+			Line.Buffer[Line.WriteIndex] = DryIn + FeedbackNow * Line.DamperState;
+			++Line.WriteIndex;
+			if (Line.WriteIndex >= Line.Buffer.size())
+			{
+				Line.WriteIndex = 0;
+			}
+			return Delayed;
+		}
+
 		static constexpr double MaxDelaySeconds = 2.0;
 
 		std::atomic<float> TimeMs{ 250.0f };
@@ -197,10 +225,8 @@ namespace NodeSynth
 		std::atomic<float> Tone{ 1.0f };
 
 		double SampleRate = 48000.0;
-		std::vector<float> Buffer;
 		size_t Capacity = 0;
-		size_t WriteIndex = 0;
-		float DamperState = 0.0f;
+		FLine Lines[2];
 		FOnePoleSmoother TimeSmoother;
 	};
 }
