@@ -10,7 +10,10 @@ namespace NodeSynth
 {
 	// Freeverb by Jezar at Dreampoint (public domain, c. 2000): 8 lowpass-
 	// feedback comb filters in parallel summed into 4 series allpass diffusers.
-	// Mono in / mono out; stereo is a Phase 5 deliverable.
+	// Two parallel filter banks — L uses the published tunings; R uses the
+	// same tunings + StereoSpread samples per the standard Freeverb stereo
+	// recipe. Mono input fans out to both banks; the output is true stereo
+	// (channel 0 = L bank, channel 1 = R bank).
 	//
 	// Standard Freeverb delay tunings are specified at 44100 Hz; we scale them
 	// by SampleRate / 44100 to track the device. Comb and allpass buffers
@@ -36,8 +39,13 @@ namespace NodeSynth
 		std::vector<FPortInfo> GetOutputPorts() const override
 		{
 			return { { "Out", EPortType::Audio,
-				"Dry × (1-Wet) + reverberated × Wet. Mix is internal so the node\n"
-				"can replace a dry → effect chain without an external blender." } };
+				"Dry × (1-Wet) + reverberated × Wet, stereo. Mix is internal so\n"
+				"the node can replace a dry → effect chain without a blender." } };
+		}
+
+		bool IsOutputStereo(uint32_t Index) const override
+		{
+			return Index == 0;
 		}
 
 		std::vector<FParamInfo> GetParamInfos() const override
@@ -82,26 +90,34 @@ namespace NodeSynth
 		{
 			SampleRate = InSampleRate;
 			const double Scale = InSampleRate / 44100.0;
+			const size_t Spread = static_cast<size_t>(StereoSpread * Scale);
 
 			for (int32_t I = 0; I < NumCombs; ++I)
 			{
-				const size_t Size = static_cast<size_t>(CombTunings[I] * Scale);
-				Combs[I].Buffer.assign(Size, 0.0f);
-				Combs[I].Index = 0;
-				Combs[I].FilterStore = 0.0f;
+				const size_t Base = static_cast<size_t>(CombTunings[I] * Scale);
+				CombsL[I].Buffer.assign(Base, 0.0f);
+				CombsL[I].Index = 0;
+				CombsL[I].FilterStore = 0.0f;
+				CombsR[I].Buffer.assign(Base + Spread, 0.0f);
+				CombsR[I].Index = 0;
+				CombsR[I].FilterStore = 0.0f;
 			}
 			for (int32_t I = 0; I < NumAllpasses; ++I)
 			{
-				const size_t Size = static_cast<size_t>(AllpassTunings[I] * Scale);
-				Allpasses[I].Buffer.assign(Size, 0.0f);
-				Allpasses[I].Index = 0;
+				const size_t Base = static_cast<size_t>(AllpassTunings[I] * Scale);
+				AllpassesL[I].Buffer.assign(Base, 0.0f);
+				AllpassesL[I].Index = 0;
+				AllpassesR[I].Buffer.assign(Base + Spread, 0.0f);
+				AllpassesR[I].Index = 0;
 			}
 		}
 
 		void Process(const FProcessContext& Ctx) override
 		{
-			float* Out = GetOutputBuffer(0);
-			const float* AudioIn = GetInputBuffer(0);
+			float* OutL = GetOutputBuffer(0, 0);
+			float* OutR = GetOutputBuffer(0, 1);
+			const float* AudioInL = GetInputBuffer(0, 0);
+			const float* AudioInR = GetInputBuffer(0, 1);
 
 			const float RoomNow = RoomSize.load(std::memory_order_relaxed);
 			const float DampNow = Damping.load(std::memory_order_relaxed);
@@ -114,24 +130,31 @@ namespace NodeSynth
 
 			for (uint32_t I = 0; I < Ctx.BlockSize; ++I)
 			{
-				const float Dry = (AudioIn != nullptr) ? AudioIn[I] : 0.0f;
+				const float DryL = (AudioInL != nullptr) ? AudioInL[I] : 0.0f;
+				const float DryR = (AudioInR != nullptr) ? AudioInR[I] : DryL;
 				// Standard Freeverb input scale — keeps the 8-comb sum within
 				// reasonable bounds.
-				const float Scaled = Dry * 0.015f;
+				const float ScaledL = DryL * 0.015f;
+				const float ScaledR = DryR * 0.015f;
 
-				float CombSum = 0.0f;
+				float CombSumL = 0.0f;
+				float CombSumR = 0.0f;
 				for (int32_t C = 0; C < NumCombs; ++C)
 				{
-					CombSum += Combs[C].Process(Scaled, CombFeedback, CombDamping);
+					CombSumL += CombsL[C].Process(ScaledL, CombFeedback, CombDamping);
+					CombSumR += CombsR[C].Process(ScaledR, CombFeedback, CombDamping);
 				}
 
-				float Diffused = CombSum;
+				float DiffusedL = CombSumL;
+				float DiffusedR = CombSumR;
 				for (int32_t A = 0; A < NumAllpasses; ++A)
 				{
-					Diffused = Allpasses[A].Process(Diffused);
+					DiffusedL = AllpassesL[A].Process(DiffusedL);
+					DiffusedR = AllpassesR[A].Process(DiffusedR);
 				}
 
-				Out[I] = Dry * (1.0f - WetNow) + Diffused * WetNow;
+				OutL[I] = DryL * (1.0f - WetNow) + DiffusedL * WetNow;
+				OutR[I] = DryR * (1.0f - WetNow) + DiffusedR * WetNow;
 			}
 		}
 
@@ -188,13 +211,20 @@ namespace NodeSynth
 		static constexpr int32_t AllpassTunings[NumAllpasses] = {
 			556, 441, 341, 225
 		};
+		// Per-channel offset added to the R bank's delay-line lengths to
+		// decorrelate the two reverb tails into a stereo image. The Freeverb
+		// reference uses 23 samples at 44.1 kHz; we scale to the device rate
+		// in Prepare.
+		static constexpr int32_t StereoSpread = 23;
 
 		std::atomic<float> RoomSize{ 0.5f };
 		std::atomic<float> Damping{ 0.5f };
 		std::atomic<float> Wet{ 0.3f };
 
-		FComb Combs[NumCombs];
-		FAllpass Allpasses[NumAllpasses];
+		FComb CombsL[NumCombs];
+		FComb CombsR[NumCombs];
+		FAllpass AllpassesL[NumAllpasses];
+		FAllpass AllpassesR[NumAllpasses];
 
 		double SampleRate = 48000.0;
 	};

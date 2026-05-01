@@ -104,6 +104,13 @@ namespace NodeSynth
 		virtual void SetInputBuffer(uint32_t Index, const float* Buffer, uint32_t Channel = 0) = 0;
 		virtual const float* GetInputBuffer(uint32_t Index, uint32_t Channel = 0) const = 0;
 		virtual float* GetOutputBuffer(uint32_t Index, uint32_t Channel = 0) = 0;
+
+		// True iff the node writes distinct content to channels 0 and 1 of the
+		// named output port. Mono nodes return false (the default) and the
+		// graph compiler broadcasts their L buffer onto downstream R inputs.
+		// Stereo-aware nodes (Reverb, Delay, Chorus, Flanger) override and the
+		// compiler plumbs L→L, R→R so the two streams stay separate.
+		virtual bool IsOutputStereo(uint32_t Index) const { (void)Index; return false; }
 	};
 
 	// Convenience base that provides fixed-size input-pointer and output-buffer storage.

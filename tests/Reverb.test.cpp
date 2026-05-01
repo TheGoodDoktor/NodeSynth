@@ -56,6 +56,56 @@ namespace
 	}
 }
 
+TEST_CASE("FReverb: stereo output diverges with the StereoSpread offset", "[reverb][stereo]")
+{
+	// True-stereo Freeverb: the R bank's delay-line lengths are L + 23
+	// samples (scaled by SampleRate / 44100). Feeding the same dry impulse
+	// into both channels of the input produces measurably different L vs R
+	// content within the first few hundred samples — that's the whole point
+	// of the stereo spread.
+	FReverb R;
+	R.SetParamValue(FReverb::Param_Wet, 1.0f);
+	R.SetParamValue(FReverb::Param_RoomSize, 0.7f);
+	R.SetParamValue(FReverb::Param_Damping, 0.2f);
+	R.Prepare(48000.0);
+
+	REQUIRE(R.IsOutputStereo(0));
+
+	std::vector<float> Audio(BlockSize, 0.0f);
+	Audio[0] = 1.0f;
+	// Mono input — broadcast convention: same buffer on L and R.
+	R.SetInputBuffer(0, Audio.data(), 0);
+	R.SetInputBuffer(0, Audio.data(), 1);
+	R.Process(Ctx());
+	const float* OL = R.GetOutputBuffer(0, 0);
+	const float* OR = R.GetOutputBuffer(0, 1);
+	REQUIRE(OL != OR);  // distinct storage
+
+	// Successive blocks of silent input feed the tail along. Freeverb's
+	// smallest comb buffer is ~1213 samples at 48 kHz, so we need at least
+	// ~25 blocks before the first echoes emerge from the L bank and ~26
+	// for the R bank — extend well past that to capture the divergence.
+	std::vector<float> Quiet(BlockSize, 0.0f);
+	std::vector<float> AllL;
+	std::vector<float> AllR;
+	for (uint32_t I = 0; I < BlockSize; ++I) { AllL.push_back(OL[I]); AllR.push_back(OR[I]); }
+	for (uint32_t B = 0; B < 100; ++B)
+	{
+		R.SetInputBuffer(0, Quiet.data(), 0);
+		R.SetInputBuffer(0, Quiet.data(), 1);
+		R.Process(Ctx());
+		for (uint32_t I = 0; I < BlockSize; ++I) { AllL.push_back(OL[I]); AllR.push_back(OR[I]); }
+	}
+
+	// Sum of absolute differences across the captured tail must be non-zero.
+	double TotalDiff = 0.0;
+	for (size_t I = 0; I < AllL.size(); ++I)
+	{
+		TotalDiff += std::fabs(AllL[I] - AllR[I]);
+	}
+	REQUIRE(TotalDiff > 0.001);
+}
+
 TEST_CASE("FReverb: Wet=0 produces dry passthrough", "[reverb]")
 {
 	FReverb R;

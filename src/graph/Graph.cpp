@@ -627,27 +627,32 @@ namespace NodeSynth
 			const bool bFromPoly = IsPolyClass(FromC);
 			const bool bToPoly = (ToC == EClass::PerVoice && Clones.count(L.ToNode) > 0);
 
-			// Until any node opts into stereo output, every producer is mono —
-			// channel 0 carries signal, channel 1 stays at zero. Plumb both
-			// dest channels at the source's L buffer so a downstream stereo-
-			// aware node (e.g. the audio sink) sees the same content on R.
-			// A future stereo producer will overwrite this for its own ports
-			// to plumb L→L, R→R instead of broadcast.
+			// Mono producer → broadcast: dest.R aliases dest.L (same buffer
+			// pointer). Stereo producer → paired: dest.L = src.L, dest.R = src.R
+			// so the two streams stay separate. The producer's IsOutputStereo
+			// flag selects which.
+			auto WireMonoLink = [&](INode* Source, uint32_t SrcPort, INode* Dest, uint32_t DestPort)
+			{
+				const bool bStereoSrc = Source->IsOutputStereo(SrcPort);
+				float* SrcL = Source->GetOutputBuffer(SrcPort, 0);
+				float* SrcR = bStereoSrc ? Source->GetOutputBuffer(SrcPort, 1) : SrcL;
+				Dest->SetInputBuffer(DestPort, SrcL, 0);
+				Dest->SetInputBuffer(DestPort, SrcR, 1);
+			};
+
 			if (!bFromPoly && !bToPoly)
 			{
 				// Mono → Mono.
-				float* Buf = Nodes.at(L.FromNode).Node->GetOutputBuffer(L.FromPort);
-				Nodes.at(L.ToNode).Node->SetInputBuffer(L.ToPort, Buf, 0);
-				Nodes.at(L.ToNode).Node->SetInputBuffer(L.ToPort, Buf, 1);
+				WireMonoLink(Nodes.at(L.FromNode).Node.get(), L.FromPort,
+					Nodes.at(L.ToNode).Node.get(), L.ToPort);
 			}
 			else if (!bFromPoly && bToPoly)
 			{
 				// Mono → PerVoice: broadcast.
-				float* Buf = Nodes.at(L.FromNode).Node->GetOutputBuffer(L.FromPort);
+				INode* Source = Nodes.at(L.FromNode).Node.get();
 				for (auto& Clone : Clones.at(L.ToNode))
 				{
-					Clone->SetInputBuffer(L.ToPort, Buf, 0);
-					Clone->SetInputBuffer(L.ToPort, Buf, 1);
+					WireMonoLink(Source, L.FromPort, Clone.get(), L.ToPort);
 				}
 			}
 			else if (bFromPoly && bToPoly)
