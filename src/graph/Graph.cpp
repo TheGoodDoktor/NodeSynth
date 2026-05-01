@@ -166,6 +166,40 @@ namespace NodeSynth
 		return true;
 	}
 
+	std::string FGraphModel::ValidateLinkPolyphony(FNodeId FromNode, uint32_t FromPort, FNodeId ToNode) const
+	{
+		// Mirror the rule enforced in Compile step 4: a polyphonic Control
+		// output (from a VoiceAllocator or a per-voice node) into a mono node
+		// is rejected because there's no mixdown semantics for control rate.
+		auto FromIt = Nodes.find(FromNode);
+		auto ToIt = Nodes.find(ToNode);
+		if (FromIt == Nodes.end() || ToIt == Nodes.end())
+		{
+			return std::string();
+		}
+		const INode* FromNodePtr = FromIt->second.Node.get();
+		const INode* ToNodePtr = ToIt->second.Node.get();
+		if (!FromNodePtr || !ToNodePtr)
+		{
+			return std::string();
+		}
+		const bool bFromIsVoiceAlloc = dynamic_cast<const FVoiceAllocator*>(FromNodePtr) != nullptr;
+		const bool bToIsVoiceAlloc = dynamic_cast<const FVoiceAllocator*>(ToNodePtr) != nullptr;
+		const bool bFromPoly = bFromIsVoiceAlloc || FromIt->second.bPerVoice;
+		const bool bToMono = !bToIsVoiceAlloc && !ToIt->second.bPerVoice;
+		if (!bFromPoly || !bToMono)
+		{
+			return std::string();
+		}
+		const auto FromPorts = FromNodePtr->GetOutputPorts();
+		if (FromPort >= FromPorts.size() || FromPorts[FromPort].Type != EPortType::Control)
+		{
+			return std::string();
+		}
+		return "Per-voice Control output → mono input. Mark the destination "
+			"per-voice (right-click → Per-voice) or break the link.";
+	}
+
 	namespace
 	{
 		bool WouldCreateCycle(const std::vector<FLink>& Links, FNodeId FromNode, FNodeId ToNode)

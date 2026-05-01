@@ -302,6 +302,85 @@ TEST_CASE("VoiceAllocator: only reachable allocators land in the snapshot", "[vo
 	REQUIRE(Snapshot->Allocators[0] == Reachable.get());
 }
 
+TEST_CASE("VoiceAllocator: Glide=0 produces instant pitch jumps on note change", "[voicealloc][glide]")
+{
+	FVoiceAllocator A;
+	A.SetParamValue(FVoiceAllocator::Param_NumVoices, 0.0f);  // 1 voice
+	A.SetParamValue(FVoiceAllocator::Param_Glide, 0.0f);
+	A.Prepare(48000.0);
+
+	// First NoteOn: voice 0 takes A4 (440 Hz).
+	A.HandleNoteOn(69, 1.0f);
+	NodeSynth::FProcessContext Ctx;
+	A.Process(Ctx);
+	const float* FreqBuf = A.GetVoiceOutputBuffer(FVoiceAllocator::Output_Frequency, 0);
+	REQUIRE_THAT(FreqBuf[NodeSynth::BlockSize - 1],
+		Catch::Matchers::WithinAbs(440.0f, 1e-2f));
+
+	// NoteOff + NoteOn for a different note (E5 = MIDI 76) on the same voice.
+	A.HandleNoteOff(69);
+	A.HandleNoteOn(76, 1.0f);
+	A.Process(Ctx);
+	// Glide=0 → first sample of the next block already at the new pitch.
+	const float Expected = 440.0f * std::pow(2.0f, (76.0f - 69.0f) / 12.0f);
+	REQUIRE_THAT(FreqBuf[0], Catch::Matchers::WithinAbs(Expected, 1e-1f));
+}
+
+TEST_CASE("VoiceAllocator: Glide>0 slides frequency between consecutive notes", "[voicealloc][glide]")
+{
+	FVoiceAllocator A;
+	// Single voice so successive NoteOns reliably reuse voice 0 (otherwise
+	// the stealing policy may pick a fresh voice and the smoother under
+	// test never sees the new note).
+	A.SetParamValue(FVoiceAllocator::Param_NumVoices, 0.0f);  // 1 voice
+	// 30 ms time constant — short enough that 300 blocks (≈ 13 τ) settles
+	// the smoother for the test's stability checks.
+	A.SetParamValue(FVoiceAllocator::Param_Glide, 30.0f);
+	A.Prepare(48000.0);
+
+	A.HandleNoteOn(60, 1.0f);
+	NodeSynth::FProcessContext Ctx;
+	for (int B = 0; B < 300; ++B) { A.Process(Ctx); }
+	const float* FreqBuf = A.GetVoiceOutputBuffer(FVoiceAllocator::Output_Frequency, 0);
+	const float StableFirstNote = FreqBuf[NodeSynth::BlockSize - 1];
+
+	// New note: target a full octave up.
+	A.HandleNoteOff(60);
+	A.HandleNoteOn(72, 1.0f);
+	const float NewTarget = StableFirstNote * 2.0f;
+
+	// A few blocks into the glide: frequency must have moved past the old
+	// note but not yet reached the new target.
+	for (int B = 0; B < 5; ++B) { A.Process(Ctx); }
+	REQUIRE(FreqBuf[NodeSynth::BlockSize - 1] > StableFirstNote + 1.0f);
+	REQUIRE(FreqBuf[NodeSynth::BlockSize - 1] < NewTarget - 1.0f);
+
+	// After settling, smoother lands on the new target.
+	for (int B = 0; B < 500; ++B) { A.Process(Ctx); }
+	REQUIRE_THAT(FreqBuf[NodeSynth::BlockSize - 1],
+		Catch::Matchers::WithinAbs(NewTarget, 0.5f));
+}
+
+TEST_CASE("VoiceAllocator: same-note retrigger keeps frequency steady", "[voicealloc][glide]")
+{
+	FVoiceAllocator A;
+	A.SetParamValue(FVoiceAllocator::Param_NumVoices, 0.0f);  // 1 voice
+	A.SetParamValue(FVoiceAllocator::Param_Glide, 30.0f);
+	A.Prepare(48000.0);
+
+	A.HandleNoteOn(60, 1.0f);
+	NodeSynth::FProcessContext Ctx;
+	for (int B = 0; B < 300; ++B) { A.Process(Ctx); }
+	const float* FreqBuf = A.GetVoiceOutputBuffer(FVoiceAllocator::Output_Frequency, 0);
+	const float StableFreq = FreqBuf[NodeSynth::BlockSize - 1];
+
+	// Retrigger the same note; smoother target stays put → frequency stays put.
+	A.HandleNoteOn(60, 1.0f);
+	A.Process(Ctx);
+	REQUIRE_THAT(FreqBuf[NodeSynth::BlockSize - 1],
+		Catch::Matchers::WithinAbs(StableFreq, 0.1f));
+}
+
 TEST_CASE("VoiceAllocator: NoteOff for a never-pressed note is a no-op", "[voicealloc]")
 {
 	FVoiceAllocator A;

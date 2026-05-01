@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include "dsp/Node.h"
+#include "dsp/Smoother.h"
 
 namespace NodeSynth
 {
@@ -79,7 +80,9 @@ namespace NodeSynth
 					{ "1", "2", "4", "8" },
 					"How many simultaneous voices the allocator can play. Changing this triggers a graph recompile." },
 				{ "Glide",     0.0f, 2000.0f, 0.0f, true, EParamKind::Float, {},
-					"Portamento glide time in milliseconds. Reserved — no effect yet, lands in Phase 4." },
+					"Portamento glide time in milliseconds. 0 = instant pitch jumps;\n"
+					"larger values slide each voice's frequency from its previous note\n"
+					"to the new one. Per-voice — different voices glide independently." },
 			};
 		}
 
@@ -135,6 +138,16 @@ namespace NodeSynth
 			{
 				Voices[I] = FVoice{};
 			}
+			// Per-voice frequency smoothers for glide. Reset to a neutral
+			// starting frequency (A4) so the first note doesn't slide from
+			// near-zero — for Glide=0 this is irrelevant since SetTarget
+			// snaps; for Glide>0 the starting point matters.
+			for (size_t I = 0; I < MaxVoices; ++I)
+			{
+				FreqSmoothers[I].Prepare(InSampleRate, GlideMs.load(std::memory_order_relaxed));
+				FreqSmoothers[I].Reset(440.0f);
+				FreqSmoothers[I].SetTarget(440.0f);
+			}
 			for (size_t V = 0; V < MaxVoices; ++V)
 			{
 				for (uint32_t P = 0; P < NumPorts; ++P)
@@ -185,6 +198,10 @@ namespace NodeSynth
 				Voices[Idx].Velocity = Velocity;
 				Voices[Idx].bGate = true;
 				Voices[Idx].AgeSamples = 0;
+				// Set the smoother target — Process ticks toward it sample by
+				// sample. Smoother current value is whatever this voice was
+				// last gliding to, which gives natural per-voice portamento.
+				FreqSmoothers[Idx].SetTarget(NoteToFrequency(Note));
 			};
 
 			// 1. Same-note retrigger.
@@ -282,6 +299,15 @@ namespace NodeSynth
 
 		void Process(const FProcessContext& Ctx) override
 		{
+			// Refresh smoother time-constants from the Glide param. Cheap
+			// (one exp() per voice per block); only matters when Glide
+			// changed but always runs for simplicity.
+			const float GlideNow = GlideMs.load(std::memory_order_relaxed);
+			for (size_t V = 0; V < MaxVoices; ++V)
+			{
+				FreqSmoothers[V].Prepare(SampleRate, GlideNow);
+			}
+
 			// Populate every voice's buffer. Per-voice clones routed by Compile
 			// pull from voice-i's slice via GetVoiceOutputBuffer; mono patches
 			// just see voice 0 via the standard GetOutputBuffer override.
@@ -289,7 +315,6 @@ namespace NodeSynth
 			{
 				const FVoice& Voice = Voices[V];
 				const float GateValue = Voice.bGate ? 1.0f : 0.0f;
-				const float FreqValue = NoteToFrequency(Voice.Note);
 				const float VelValue = Voice.Velocity;
 				const float NoteValue = static_cast<float>(Voice.Note);
 
@@ -300,7 +325,7 @@ namespace NodeSynth
 				for (uint32_t I = 0; I < Ctx.BlockSize; ++I)
 				{
 					Gate[I] = GateValue;
-					Freq[I] = FreqValue;
+					Freq[I] = FreqSmoothers[V].Tick();
 					Vel[I] = VelValue;
 					NoteOut[I] = NoteValue;
 				}
@@ -347,5 +372,6 @@ namespace NodeSynth
 		double SampleRate = 48000.0;
 		uint64_t SampleCounter = 0;
 		uint64_t ReleaseThresholdSamples = 4800;  // 100 ms at 48 kHz, recomputed in Prepare
+		FOnePoleSmoother FreqSmoothers[MaxVoices];
 	};
 }

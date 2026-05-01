@@ -211,7 +211,20 @@ namespace NodeSynth
 							std::swap(FromNode, ToNode);
 							std::swap(FromPort, ToPort);
 						}
-						if (ed::AcceptNewItem())
+						// Pre-flight the polyphony rule so the user gets a red
+						// tooltip mid-drag instead of a silent compile failure
+						// after dropping. Other failures (cycle, port type
+						// mismatch) are still caught by AddLink itself.
+						const std::string PolyReason =
+							Model.ValidateLinkPolyphony(FromNode, FromPort, ToNode);
+						if (!PolyReason.empty())
+						{
+							ed::Suspend();
+							ImGui::SetTooltip("%s", PolyReason.c_str());
+							ed::Resume();
+							ed::RejectNewItem(ImColor(255, 90, 90), 2.0f);
+						}
+						else if (ed::AcceptNewItem())
 						{
 							if (Model.AddLink(FromNode, FromPort, ToNode, ToPort) != 0)
 							{

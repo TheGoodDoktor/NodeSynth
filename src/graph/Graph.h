@@ -155,6 +155,13 @@ namespace NodeSynth
 		// nullptr (non-cloneable types like MIDI input or virtual keyboard).
 		bool SetNodePerVoice(FNodeId Id, bool bPerVoice);
 
+		// Pre-flight check for a proposed link, mirroring the polyphony rule
+		// enforced in Compile. Returns empty string if the link would compile,
+		// or a human-readable reason string if it would be rejected. Used by
+		// the editor to show a red tooltip during link drag instead of letting
+		// the user drop a link that will silently break the audio graph.
+		std::string ValidateLinkPolyphony(FNodeId FromNode, uint32_t FromPort, FNodeId ToNode) const;
+
 	private:
 		std::unordered_map<FNodeId, FNodeRecord> Nodes;
 		std::vector<FLink> Links;

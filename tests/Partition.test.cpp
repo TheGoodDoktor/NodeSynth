@@ -1,5 +1,6 @@
 #include "dsp/Adsr.h"
 #include "dsp/Gain.h"
+#include "dsp/Lfo.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
 #include "dsp/Vca.h"
@@ -85,6 +86,33 @@ TEST_CASE("Partition: rejects per-voice → mono Control link", "[partition]")
 	auto Snapshot = CompileAt(Model);
 	REQUIRE(Snapshot->OrderedNodes.empty());
 	REQUIRE(Snapshot->OutputNode == nullptr);
+}
+
+TEST_CASE("Partition: ValidateLinkPolyphony flags poly Control → mono pre-flight", "[partition]")
+{
+	// The proactive editor pre-flight should report the same rule that
+	// Compile enforces, so the user gets a tooltip during link drag instead
+	// of dropping a link that breaks the audio graph.
+	FGraphModel Model;
+	auto Alloc = std::make_shared<FVoiceAllocator>();
+	auto Osc = std::make_shared<FOscillator>();
+	const FNodeId AllocId = Model.AddNode(Alloc);
+	const FNodeId OscId = Model.AddNode(Osc);
+
+	// Mono destination: poly Control source → rejected.
+	const std::string Reason = Model.ValidateLinkPolyphony(
+		AllocId, FVoiceAllocator::Output_Frequency, OscId);
+	REQUIRE(!Reason.empty());
+
+	// Mark the destination per-voice → rule no longer applies.
+	REQUIRE(Model.SetNodePerVoice(OscId, true));
+	REQUIRE(Model.ValidateLinkPolyphony(
+		AllocId, FVoiceAllocator::Output_Frequency, OscId).empty());
+
+	// VoiceAllocator's Gate output is also poly Control; same rule.
+	REQUIRE(Model.SetNodePerVoice(OscId, false));
+	REQUIRE(!Model.ValidateLinkPolyphony(
+		AllocId, FVoiceAllocator::Output_Gate, OscId).empty());
 }
 
 TEST_CASE("Partition: failed Compile populates LastCompileError with the bad link's endpoints", "[partition]")
@@ -254,6 +282,64 @@ TEST_CASE("Partition: non-cloneable per-voice flag falls back to mono with warni
 	FGraphModel Model;
 	const FNodeId OutId = Model.AddNode(std::make_shared<FOutput>());
 	REQUIRE_FALSE(Model.SetNodePerVoice(OutId, true));
+}
+
+TEST_CASE("Partition: per-voice LFO Sync receives per-voice gate edges", "[partition][lfo]")
+{
+	// Build: VoiceAllocator.Gate → LFO.Sync (both per-voice paired),
+	// LFO.Out → Osc.Amp, Osc → Output. NoteOn on a specific voice should
+	// reset only that voice's LFO clone's phase.
+	FGraphModel Model;
+	auto Alloc = std::make_shared<NodeSynth::FVoiceAllocator>();
+	auto Lfo = std::make_shared<NodeSynth::FLfo>();
+	auto Osc = std::make_shared<NodeSynth::FOscillator>();
+	auto Out = std::make_shared<FOutput>();
+	const FNodeId AllocId = Model.AddNode(Alloc);
+	const FNodeId LfoId = Model.AddNode(Lfo);
+	const FNodeId OscId = Model.AddNode(Osc);
+	const FNodeId OutId = Model.AddNode(Out);
+	REQUIRE(Model.SetNodePerVoice(LfoId, true));
+	REQUIRE(Model.SetNodePerVoice(OscId, true));
+	REQUIRE(Model.AddLink(AllocId, FVoiceAllocator::Output_Gate,
+		LfoId, NodeSynth::FLfo::Input_Sync) != 0);
+	REQUIRE(Model.AddLink(AllocId, FVoiceAllocator::Output_Frequency,
+		OscId, FOscillator::Input_Frequency) != 0);
+	REQUIRE(Model.AddLink(LfoId, 0, OscId, FOscillator::Input_Amplitude) != 0);
+	REQUIRE(Model.AddLink(OscId, 0, OutId, 0) != 0);
+
+	// Slow saw LFO so we can clearly observe phase resets.
+	Lfo->SetParamValue(NodeSynth::FLfo::Param_Shape,
+		static_cast<float>(NodeSynth::ELfoShape::Saw));
+	Lfo->SetParamValue(NodeSynth::FLfo::Param_RateHz, 1.0f);
+	Lfo->SetParamValue(NodeSynth::FLfo::Param_Amount, 1.0f);
+
+	auto Snapshot = CompileAt(Model);
+	REQUIRE_FALSE(Snapshot->OrderedNodes.empty());
+
+	const auto& LfoEntry = Snapshot->NodeById.at(LfoId);
+	REQUIRE(LfoEntry.Voices.size() == 8);
+
+	// Run for a few blocks without any notes — every LFO clone should be
+	// progressing through its (free-running) phase.
+	FProcessContext Ctx;
+	for (int B = 0; B < 50; ++B) { Snapshot->Process(Ctx); }
+
+	// Note-on for note 60 — voice 0 (single-voice would be cleaner, but we'll
+	// just check that the FIRST voice to receive a gate sees its LFO sync).
+	FAudioCommandRing Ring;
+	Ring.Push(FAudioCommand::MakeNoteOn(60, 1.0f));
+	Snapshot->DrainCommands(Ring);
+	Snapshot->Process(Ctx);
+
+	// The voice 0 LFO clone should have been resync'd; its output buffer at
+	// or near sample 0 of this block (right after the rising-edge sync)
+	// should be close to -1 (saw starts there with Amount=1.0).
+	auto* Voice0Lfo = dynamic_cast<NodeSynth::FLfo*>(LfoEntry.Voices[0]);
+	REQUIRE(Voice0Lfo != nullptr);
+	const float* Voice0LfoOut = Voice0Lfo->GetOutputBuffer(0);
+	// Within the block, the saw should reset and start ramping near -1.
+	// We sample late in the block to allow the gate edge to register.
+	REQUIRE(Voice0LfoOut[NodeSynth::BlockSize - 1] < 0.5f);
 }
 
 TEST_CASE("Partition: per-voice ADSRs release independently", "[partition][adsr]")
