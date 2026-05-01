@@ -68,6 +68,23 @@ namespace NodeSynth
 		json Root;
 		Root["version"] = PatchSchemaVersion;
 
+		// Metadata: only emit fields that the user has set (or that we know
+		// because we just saved). Keeps default-empty patches diff-clean.
+		const FPatchMetadata& Meta = Model.GetMetadata();
+		json MetaJson = json::object();
+		if (!Meta.Name.empty())   { MetaJson["name"] = Meta.Name; }
+		if (!Meta.Author.empty()) { MetaJson["author"] = Meta.Author; }
+		if (!Meta.Notes.empty())  { MetaJson["notes"] = Meta.Notes; }
+		MetaJson["bpm"] = Meta.Bpm;
+		if (Meta.SampleRateHint > 0.0)
+		{
+			MetaJson["sample_rate_hint"] = Meta.SampleRateHint;
+		}
+		if (!MetaJson.empty())
+		{
+			Root["metadata"] = std::move(MetaJson);
+		}
+
 		json Nodes = json::array();
 		for (const auto& [Id, Rec] : Model.GetNodes())
 		{
@@ -131,6 +148,18 @@ namespace NodeSynth
 		}
 
 		FLoadedPatch Result;
+
+		// -- Metadata ------------------------------------------------------------
+		if (Root.contains("metadata") && Root["metadata"].is_object())
+		{
+			const json& M = Root["metadata"];
+			FPatchMetadata& Meta = Result.Model.GetMetadata();
+			Meta.Name = M.value("name", std::string{});
+			Meta.Author = M.value("author", std::string{});
+			Meta.Notes = M.value("notes", std::string{});
+			Meta.Bpm = M.value("bpm", 120.0f);
+			Meta.SampleRateHint = M.value("sample_rate_hint", 0.0);
+		}
 
 		// -- Nodes ---------------------------------------------------------------
 		if (Root.contains("nodes") && Root["nodes"].is_array())

@@ -306,6 +306,10 @@ int main()
 	AudioState.Graph.store(Model.Compile(48000.0));
 	EditorPanel.SetCommandRing(&AudioState.Commands);
 
+	// Last load/save warning surfaced to the UI (e.g. sample-rate mismatch).
+	// Cleared on successful action; rendered as a non-blocking notice.
+	std::string LastIoNotice;
+
 	// Apply a load. Returns true on success, sets CurrentPatchPath, etc.
 	// Defined after AudioState because the closures capture it.
 	auto DoLoadPatch = [&](const std::filesystem::path& P) -> bool
@@ -314,6 +318,22 @@ int main()
 		if (!Loaded)
 		{
 			return false;
+		}
+		// Compare the patch's saved sample rate to the live device rate;
+		// surface a warning if they differ. The patch still loads — sample-rate
+		// dependent state (delay buffers, smoother coefficients) is recomputed
+		// on Compile via Prepare().
+		const double LoadedHint = Loaded->Model.GetMetadata().SampleRateHint;
+		const double DeviceRate = AudioState.SampleRate.load();
+		LastIoNotice.clear();
+		if (LoadedHint > 0.0 && DeviceRate > 0.0
+			&& std::fabs(LoadedHint - DeviceRate) > 0.5)
+		{
+			LastIoNotice = "Patch was saved at "
+				+ std::to_string(static_cast<int>(LoadedHint))
+				+ " Hz but the device is running at "
+				+ std::to_string(static_cast<int>(DeviceRate))
+				+ " Hz. Time-based effects may sound slightly off.";
 		}
 		Model = std::move(Loaded->Model);
 		Model.SetHistory(&EditHistory);
@@ -338,11 +358,15 @@ int main()
 		{
 			return false;
 		}
+		// Stamp the current device rate into the metadata so future loads can
+		// detect mismatch.
+		Model.GetMetadata().SampleRateHint = AudioState.SampleRate.load();
 		if (!SavePatch(Model, P))
 		{
 			return false;
 		}
 		CurrentPatchPath = P;
+		LastIoNotice.clear();
 		return true;
 	};
 
@@ -621,6 +645,38 @@ int main()
 			}
 		}
 
+		// History-panel jump request. Positive = Undo N, negative = Redo N.
+		// Single recompile after the whole jump finishes.
+		if (const int32_t Jump = EditorPanel.TakePendingHistoryJump(); Jump != 0)
+		{
+			bool bChanged = false;
+			if (Jump > 0)
+			{
+				for (int32_t I = 0; I < Jump; ++I)
+				{
+					if (EditHistory.Undo(Model)) { bChanged = true; }
+					else { break; }
+				}
+			}
+			else
+			{
+				for (int32_t I = 0; I < -Jump; ++I)
+				{
+					if (EditHistory.Redo(Model)) { bChanged = true; }
+					else { break; }
+				}
+			}
+			if (bChanged)
+			{
+				EditorPanel.OnModelReplaced();
+				auto NewSnapshot = Model.Compile(AudioState.SampleRate.load());
+				if (!Model.GetLastCompileError().bHasError)
+				{
+					AudioState.Graph.store(std::move(NewSnapshot));
+				}
+			}
+		}
+
 		// Node editor
 		ImGui::Begin("Graph");
 		const bool bGraphChanged = EditorPanel.Draw(Model);
@@ -649,6 +705,27 @@ int main()
 		ImGui::Text("Block size:  %u samples", BlockSize);
 		ImGui::Text("Nodes:       %zu", Model.GetNodes().size());
 		ImGui::Text("Links:       %zu", Model.GetLinks().size());
+		if (!LastIoNotice.empty())
+		{
+			ImGui::Separator();
+			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.4f, 1.0f));
+			ImGui::PushTextWrapPos(0.0f);
+			ImGui::TextUnformatted(LastIoNotice.c_str());
+			ImGui::PopTextWrapPos();
+			ImGui::PopStyleColor();
+			if (ImGui::SmallButton("Dismiss"))
+			{
+				LastIoNotice.clear();
+			}
+		}
+		ImGui::End();
+
+		ImGui::Begin("Patch Info");
+		EditorPanel.DrawPatchInfoPanel(Model);
+		ImGui::End();
+
+		ImGui::Begin("History");
+		EditorPanel.DrawHistoryPanel(Model);
 		ImGui::End();
 
 		if (bGraphChanged)

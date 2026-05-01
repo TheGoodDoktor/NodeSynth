@@ -4,6 +4,56 @@
 
 namespace NodeSynth
 {
+	namespace
+	{
+		const char* CommandTypeLabel(EEditCommand Type)
+		{
+			switch (Type)
+			{
+				case EEditCommand::AddNode:         return "Add";
+				case EEditCommand::RemoveNode:      return "Remove";
+				case EEditCommand::AddLink:         return "Connect";
+				case EEditCommand::RemoveLink:      return "Disconnect";
+				case EEditCommand::SetParam:        return "Set param";
+				case EEditCommand::SetNodePerVoice: return "Toggle per-voice";
+				case EEditCommand::SetNodePosition: return "Move node";
+			}
+			return "?";
+		}
+
+		std::string LabelFor(const std::vector<FEditCommand>& Entry)
+		{
+			if (Entry.empty()) { return "(empty)"; }
+			if (Entry.size() == 1)
+			{
+				const FEditCommand& Cmd = Entry.front();
+				const char* Type = CommandTypeLabel(Cmd.Type);
+				if ((Cmd.Type == EEditCommand::AddNode || Cmd.Type == EEditCommand::RemoveNode)
+					&& !Cmd.NodeType.empty())
+				{
+					return std::string(Type) + " " + Cmd.NodeType;
+				}
+				return Type;
+			}
+			return "Batch (" + std::to_string(Entry.size()) + " edits)";
+		}
+	}
+
+	std::string FEditHistory::GetUndoLabel(size_t Index) const
+	{
+		if (Index >= UndoStack.size()) { return {}; }
+		// Index 0 = top of stack = most recent. Stack itself is back = top.
+		const auto& Entry = UndoStack[UndoStack.size() - 1 - Index];
+		return LabelFor(Entry);
+	}
+
+	std::string FEditHistory::GetRedoLabel(size_t Index) const
+	{
+		if (Index >= RedoStack.size()) { return {}; }
+		const auto& Entry = RedoStack[RedoStack.size() - 1 - Index];
+		return LabelFor(Entry);
+	}
+
 	void FEditHistory::Push(FEditCommand Cmd)
 	{
 		if (bInComposite)
@@ -185,6 +235,15 @@ namespace NodeSynth
 			case EEditCommand::SetNodePerVoice:
 			{
 				Model.SetNodePerVoice(Cmd.NodeId, bForward ? Cmd.NewPerVoice : Cmd.OldPerVoice);
+				break;
+			}
+			case EEditCommand::SetNodePosition:
+			{
+				if (FNodeRecord* Rec = Model.FindNode(Cmd.NodeId))
+				{
+					Rec->PositionX = bForward ? Cmd.NewX : Cmd.OldX;
+					Rec->PositionY = bForward ? Cmd.NewY : Cmd.OldY;
+				}
 				break;
 			}
 		}

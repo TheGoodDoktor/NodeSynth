@@ -46,6 +46,18 @@ namespace NodeSynth
 		uint32_t ToPort = 0;
 	};
 
+	// Patch-level metadata: name, author, BPM hint, free-form notes, sample
+	// rate the patch was last saved at. All optional; empty fields don't
+	// serialise. Lives on FGraphModel so save/load roundtrips it naturally.
+	struct FPatchMetadata
+	{
+		std::string Name;
+		std::string Author;
+		std::string Notes;
+		float Bpm = 120.0f;
+		double SampleRateHint = 0.0;  // 0 = unknown / not yet saved
+	};
+
 	// Audio-thread-side graph snapshot. Immutable after construction. Nodes are
 	// shared with the UI thread, but ownership is conceptually joint: both
 	// threads hold the shared_ptr so neither destroys on the audio thread.
@@ -128,6 +140,12 @@ namespace NodeSynth
 
 		const FCompileError& GetLastCompileError() const { return LastCompileError; }
 
+		// Patch metadata — patch name, author, BPM, notes, etc. Edited by the
+		// UI's Patch Info panel; serialised by SavePatch / LoadPatch. Not in
+		// the undo stack (treated as patch state, not graph topology).
+		FPatchMetadata& GetMetadata() { return Metadata; }
+		const FPatchMetadata& GetMetadata() const { return Metadata; }
+
 		const std::unordered_map<FNodeId, FNodeRecord>& GetNodes() const { return Nodes; }
 		const std::vector<FLink>& GetLinks() const { return Links; }
 		FNodeRecord* FindNode(FNodeId Id);
@@ -145,5 +163,6 @@ namespace NodeSynth
 		FEditHistory* History = nullptr;
 		bool bRecordHistory = true;
 		FCompileError LastCompileError;
+		FPatchMetadata Metadata;
 	};
 }

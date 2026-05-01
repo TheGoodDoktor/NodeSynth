@@ -17,6 +17,7 @@ namespace NodeSynth
 		RemoveLink,        // Forward: link was removed. Undo: re-add with same id.
 		SetParam,          // Forward: param changed (NewValue). Undo: restore (OldValue).
 		SetNodePerVoice,   // Forward: per-voice flag toggled. Undo: restore prior flag.
+		SetNodePosition,   // Forward: drag landed at NewX/Y. Undo: restore OldX/Y.
 	};
 
 	// One undoable edit. Carries enough state in its variant fields to apply
@@ -62,6 +63,10 @@ namespace NodeSynth
 		// SetNodePerVoice payload.
 		bool OldPerVoice = false;
 		bool NewPerVoice = false;
+
+		// SetNodePosition payload.
+		float OldX = 0.0f, OldY = 0.0f;
+		float NewX = 0.0f, NewY = 0.0f;
 	};
 
 	// Linear undo + redo stack with a fixed cap. New user edits drop the redo
@@ -98,6 +103,11 @@ namespace NodeSynth
 		// Test accessors.
 		size_t UndoSize() const { return UndoStack.size(); }
 		size_t RedoSize() const { return RedoStack.size(); }
+
+		// Brief one-line label for the i-th undo entry (0 = top of undo stack,
+		// i.e. most recent). Used by the History panel.
+		std::string GetUndoLabel(size_t Index) const;
+		std::string GetRedoLabel(size_t Index) const;
 
 	private:
 		// One undoable unit. Always at least one command for a normal Push;

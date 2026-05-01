@@ -193,6 +193,56 @@ TEST_CASE("Patch serializer: skips unknown node types and continues", "[patch]")
 	std::filesystem::remove(Path);
 }
 
+TEST_CASE("Patch serializer: metadata round-trips through save/load", "[patch][metadata]")
+{
+	FGraphModel Original;
+	auto Out = std::make_shared<FOutput>();
+	Original.AddNode(Out);
+	auto& Meta = Original.GetMetadata();
+	Meta.Name = "Soft Pad";
+	Meta.Author = "Mark";
+	Meta.Notes = "Reverb tail tuned for room ambience.";
+	Meta.Bpm = 96.5f;
+	Meta.SampleRateHint = 48000.0;
+
+	const auto Path = TempPatchPath();
+	REQUIRE(SavePatch(Original, Path));
+
+	auto Loaded = LoadPatch(Path);
+	REQUIRE(Loaded.has_value());
+	const auto& LoadedMeta = Loaded->Model.GetMetadata();
+	REQUIRE(LoadedMeta.Name == "Soft Pad");
+	REQUIRE(LoadedMeta.Author == "Mark");
+	REQUIRE(LoadedMeta.Notes == "Reverb tail tuned for room ambience.");
+	REQUIRE_THAT(LoadedMeta.Bpm, Catch::Matchers::WithinAbs(96.5f, 1e-3f));
+	REQUIRE_THAT(LoadedMeta.SampleRateHint, Catch::Matchers::WithinAbs(48000.0, 1e-3));
+
+	std::filesystem::remove(Path);
+}
+
+TEST_CASE("Patch serializer: metadata fields default cleanly when absent", "[patch][metadata]")
+{
+	const auto Path = TempPatchPath();
+	{
+		std::ofstream F(Path);
+		F << R"({
+			"version": 1,
+			"nodes": [{"id": 1, "type": "Output", "x": 0, "y": 0, "params": {}}],
+			"links": []
+		})";
+	}
+
+	auto Loaded = LoadPatch(Path);
+	REQUIRE(Loaded.has_value());
+	const auto& Meta = Loaded->Model.GetMetadata();
+	REQUIRE(Meta.Name.empty());
+	REQUIRE(Meta.Author.empty());
+	REQUIRE(Meta.Notes.empty());
+	REQUIRE(Meta.SampleRateHint == 0.0);
+
+	std::filesystem::remove(Path);
+}
+
 TEST_CASE("AddNodeWithId rejects duplicate ids and a second Output", "[graph][addwithid]")
 {
 	FGraphModel Model;

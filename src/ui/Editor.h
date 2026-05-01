@@ -38,7 +38,15 @@ namespace NodeSynth
 
 		// Resets the editor's first-frame state so node positions in a freshly
 		// loaded model get pushed back into the imgui-node-editor canvas.
-		void OnModelReplaced() { bFirstFrame = true; }
+		// Also clears the per-node drag-tracking caches: otherwise the next
+		// frame's drag detector compares the new positions against stale
+		// LastX/Y values, mistakes the model-driven reseed for a user drag,
+		// and pushes a phantom SetNodePosition entry that drops the redo stack.
+		void OnModelReplaced()
+		{
+			bFirstFrame = true;
+			NodeDragStates.clear();
+		}
 
 		// Renders parameter sliders for the currently selected node.
 		void DrawPropertyPanel(FGraphModel& Model);
@@ -47,6 +55,24 @@ namespace NodeSynth
 		// regardless of selection. Lets the user play notes while editing other
 		// nodes' parameters.
 		void DrawKeyboardPanel(FGraphModel& Model);
+
+		// Renders the patch metadata editor (name, author, BPM, notes).
+		void DrawPatchInfoPanel(FGraphModel& Model);
+
+		// Renders a list of recent edit-history entries, most-recent first.
+		// Click an entry to jump there. Doesn't apply the jump itself —
+		// records it on the panel as a pending count; main.cpp polls and
+		// applies through the regular Undo/Redo flow (including recompile).
+		void DrawHistoryPanel(FGraphModel& Model);
+
+		// Pending history jump count (positive = number of Undos to apply,
+		// negative = number of Redos). Read + cleared by main.cpp.
+		int32_t TakePendingHistoryJump()
+		{
+			const int32_t V = PendingHistoryJump;
+			PendingHistoryJump = 0;
+			return V;
+		}
 
 	private:
 		ax::NodeEditor::EditorContext* Context = nullptr;
@@ -65,5 +91,21 @@ namespace NodeSynth
 		uint32_t  ActiveParamIndex = 0;
 		float     ActiveParamOldValue = 0.0f;
 		bool      bActiveParamCaptured = false;
+
+		// Per-node drag tracking for position undo/redo. Updated each frame
+		// in Draw — we compare the editor's current position against the
+		// previous frame's to detect drag start/end.
+		struct FNodeDragState
+		{
+			float LastX = 0.0f, LastY = 0.0f;
+			float DragStartX = 0.0f, DragStartY = 0.0f;
+			bool bDragging = false;
+			bool bSeen = false;  // true if we've sampled this node at least once
+		};
+		std::unordered_map<FNodeId, FNodeDragState> NodeDragStates;
+
+		// History panel jump request. Positive = Undo N times, negative = Redo.
+		// Main.cpp polls via TakePendingHistoryJump.
+		int32_t PendingHistoryJump = 0;
 	};
 }

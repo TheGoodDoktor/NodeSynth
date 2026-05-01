@@ -20,6 +20,9 @@ namespace NodeSynth
 		// the audio thread also sees the loaded state, in queue order with
 		// subsequent edits.
 		std::vector<FAudioCommand> InitialParams;
+		// Optional warnings from load (e.g. sample-rate mismatch with device).
+		// UI surfaces these as a non-blocking notification.
+		std::vector<std::string> Warnings;
 	};
 
 	// Writes the model out as JSON. Returns true on success. Any IO or

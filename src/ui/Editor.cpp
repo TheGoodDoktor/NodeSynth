@@ -426,6 +426,94 @@ namespace NodeSynth
 			}
 		}
 
+		// Position undo/redo. Detect drag start by per-node position change
+		// while the mouse is held; finalise (push history entry + sync model)
+		// only when the mouse is actually released. This way a momentary
+		// stillness mid-drag (mouse paused while still held) doesn't look like
+		// a drop and produce a stray history entry. Multi-select drags are
+		// wrapped in a composite group so the whole batch is one undo.
+		if (!bFirstFrame)
+		{
+			const bool bMouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+			constexpr float DragEpsilon = 0.5f;
+
+			// Pass 1: track per-node movement; mark `bDragging = true` for any
+			// node that has moved at any point while the mouse has been down.
+			for (const auto& [Id, Rec] : Model.GetNodes())
+			{
+				const ImVec2 Cur = ed::GetNodePosition(ed::NodeId(Id));
+				FNodeDragState& State = NodeDragStates[Id];
+				if (!State.bSeen)
+				{
+					State.LastX = Cur.x;
+					State.LastY = Cur.y;
+					State.bSeen = true;
+					continue;
+				}
+				const float DX = Cur.x - State.LastX;
+				const float DY = Cur.y - State.LastY;
+				const bool bMovedThisFrame = (std::fabs(DX) > DragEpsilon || std::fabs(DY) > DragEpsilon);
+
+				if (bMovedThisFrame && !State.bDragging)
+				{
+					// Drag is starting on this node. Capture position at the
+					// start of the previous frame (i.e. before the move that
+					// just happened).
+					State.DragStartX = State.LastX;
+					State.DragStartY = State.LastY;
+					State.bDragging = true;
+				}
+
+				// Always advance LastFramePos so the next frame sees the latest
+				// position as its baseline.
+				State.LastX = Cur.x;
+				State.LastY = Cur.y;
+			}
+
+			// Pass 2: if the mouse was just released, finalise any in-progress
+			// drags as a single (composite if needed) history entry.
+			if (!bMouseDown)
+			{
+				size_t NumDropped = 0;
+				for (auto& [Id, State] : NodeDragStates)
+				{
+					if (State.bDragging) { ++NumDropped; }
+				}
+				if (NumDropped > 0)
+				{
+					const bool bComposite = NumDropped > 1 && History != nullptr;
+					if (bComposite) { History->BeginComposite(); }
+					for (auto& [Id, State] : NodeDragStates)
+					{
+						if (!State.bDragging) { continue; }
+						const float NewX = State.LastX;
+						const float NewY = State.LastY;
+						const bool bActuallyMoved =
+							std::fabs(NewX - State.DragStartX) > DragEpsilon ||
+							std::fabs(NewY - State.DragStartY) > DragEpsilon;
+						if (bActuallyMoved && History != nullptr)
+						{
+							FEditCommand Cmd;
+							Cmd.Type = EEditCommand::SetNodePosition;
+							Cmd.NodeId = Id;
+							Cmd.OldX = State.DragStartX;
+							Cmd.OldY = State.DragStartY;
+							Cmd.NewX = NewX;
+							Cmd.NewY = NewY;
+							History->Push(std::move(Cmd));
+						}
+						if (FNodeRecord* RecMut = Model.FindNode(Id))
+						{
+							RecMut->PositionX = NewX;
+							RecMut->PositionY = NewY;
+						}
+						State.bDragging = false;
+					}
+					if (bComposite) { History->EndComposite(); }
+				}
+			}
+		}
+
 		ed::End();
 
 		// Drop target for the node palette. Covers the entire graph window so the
@@ -674,6 +762,105 @@ namespace NodeSynth
 		if (!bAnyDrawn)
 		{
 			ImGui::TextDisabled("Add a Virtual Keyboard node from the graph's right-click menu.");
+		}
+	}
+
+	void FGraphEditorPanel::DrawPatchInfoPanel(FGraphModel& Model)
+	{
+		FPatchMetadata& Meta = Model.GetMetadata();
+
+		// Persistent backing buffers for ImGui InputText. Sized generously;
+		// the values are sync'd to / from the metadata each frame.
+		static char NameBuf[128] = {};
+		static char AuthorBuf[128] = {};
+		static char NotesBuf[1024] = {};
+
+		auto SyncString = [](char* Buf, size_t BufSize, const std::string& Src)
+		{
+			const size_t Copy = std::min(Src.size(), BufSize - 1);
+			std::memcpy(Buf, Src.data(), Copy);
+			Buf[Copy] = '\0';
+		};
+
+		// Detect external edits (e.g. patch load) by comparing buffer to model.
+		// Cheap because strings are short.
+		if (std::string(NameBuf) != Meta.Name) { SyncString(NameBuf, sizeof(NameBuf), Meta.Name); }
+		if (std::string(AuthorBuf) != Meta.Author) { SyncString(AuthorBuf, sizeof(AuthorBuf), Meta.Author); }
+		if (std::string(NotesBuf) != Meta.Notes) { SyncString(NotesBuf, sizeof(NotesBuf), Meta.Notes); }
+
+		if (ImGui::InputText("Name", NameBuf, sizeof(NameBuf)))
+		{
+			Meta.Name = NameBuf;
+		}
+		if (ImGui::InputText("Author", AuthorBuf, sizeof(AuthorBuf)))
+		{
+			Meta.Author = AuthorBuf;
+		}
+		ImGui::DragFloat("BPM", &Meta.Bpm, 0.5f, 1.0f, 400.0f, "%.1f");
+		ImGui::TextDisabled("Notes");
+		if (ImGui::InputTextMultiline("##notes", NotesBuf, sizeof(NotesBuf),
+			ImVec2(-1.0f, ImGui::GetTextLineHeight() * 6.0f)))
+		{
+			Meta.Notes = NotesBuf;
+		}
+
+		ImGui::Separator();
+		if (Meta.SampleRateHint > 0.0)
+		{
+			ImGui::TextDisabled("Saved at %.0f Hz", Meta.SampleRateHint);
+		}
+		else
+		{
+			ImGui::TextDisabled("Sample rate will be recorded on next save.");
+		}
+	}
+
+	void FGraphEditorPanel::DrawHistoryPanel(FGraphModel& Model)
+	{
+		(void)Model;
+		if (History == nullptr)
+		{
+			ImGui::TextDisabled("(no history available)");
+			return;
+		}
+		if (!History->CanUndo() && !History->CanRedo())
+		{
+			ImGui::TextDisabled("No edits yet.");
+			return;
+		}
+
+		const size_t NumRedo = History->RedoSize();
+		const size_t NumUndo = History->UndoSize();
+
+		// Redo entries: top of the panel. Click to redo (I+1) times so that
+		// entry lands on the undo stack.
+		for (size_t I = NumRedo; I-- > 0; )
+		{
+			const std::string Label = History->GetRedoLabel(I);
+			ImGui::PushID(static_cast<int>(I + 1024));
+			ImGui::TextDisabled(" v ");
+			ImGui::SameLine();
+			if (ImGui::SmallButton(Label.c_str()))
+			{
+				PendingHistoryJump = -static_cast<int32_t>(I + 1);
+			}
+			ImGui::PopID();
+		}
+
+		ImGui::Separator();
+		ImGui::TextDisabled("— now —");
+		ImGui::Separator();
+
+		// Undo entries: most-recent first. Click to undo (I+1) times.
+		for (size_t I = 0; I < NumUndo; ++I)
+		{
+			const std::string Label = History->GetUndoLabel(I);
+			ImGui::PushID(static_cast<int>(I));
+			if (ImGui::SmallButton(Label.c_str()))
+			{
+				PendingHistoryJump = static_cast<int32_t>(I + 1);
+			}
+			ImGui::PopID();
 		}
 	}
 }

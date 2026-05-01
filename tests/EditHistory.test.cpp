@@ -130,6 +130,47 @@ TEST_CASE("EditHistory: AddLink → Undo removes the link, Redo restores with sa
 	REQUIRE(Model.GetLinks().front().Id == LinkId);
 }
 
+TEST_CASE("EditHistory: AddLink that displaces an existing link restores it on Undo", "[edithistory][displace]")
+{
+	FGraphModel Model;
+	FEditHistory History;
+	Model.SetHistory(&History);
+
+	const FNodeId OscA = Model.AddNode(std::make_shared<FOscillator>());
+	const FNodeId OscB = Model.AddNode(std::make_shared<FOscillator>());
+	const FNodeId OutId = Model.AddNode(std::make_shared<FOutput>());
+
+	const NodeSynth::FLinkId LinkA = Model.AddLink(OscA, 0, OutId, 0);
+	REQUIRE(LinkA != 0);
+	REQUIRE(Model.GetLinks().size() == 1);
+
+	// Connecting OscB to the same input port displaces LinkA.
+	const NodeSynth::FLinkId LinkB = Model.AddLink(OscB, 0, OutId, 0);
+	REQUIRE(LinkB != 0);
+	REQUIRE(LinkB != LinkA);
+	REQUIRE(Model.GetLinks().size() == 1);
+	REQUIRE(Model.GetLinks().front().Id == LinkB);
+	REQUIRE(Model.GetLinks().front().FromNode == OscB);
+
+	// One undo should restore the displaced LinkA, not just remove LinkB.
+	REQUIRE(History.Undo(Model));
+	REQUIRE(Model.GetLinks().size() == 1);
+	REQUIRE(Model.GetLinks().front().Id == LinkA);
+	REQUIRE(Model.GetLinks().front().FromNode == OscA);
+
+	// Another undo removes the original AddLink — back to no links.
+	REQUIRE(History.Undo(Model));
+	REQUIRE(Model.GetLinks().size() == 0);
+
+	// Redo brings LinkA back, then redo again displaces it for LinkB.
+	REQUIRE(History.Redo(Model));
+	REQUIRE(Model.GetLinks().size() == 1);
+	REQUIRE(Model.GetLinks().front().Id == LinkA);
+	REQUIRE(History.Redo(Model));
+	REQUIRE(Model.GetLinks().size() == 1);
+	REQUIRE(Model.GetLinks().front().Id == LinkB);
+}
+
 TEST_CASE("EditHistory: SetNodePerVoice round-trips through Undo + Redo", "[edithistory]")
 {
 	FGraphModel Model;
@@ -253,6 +294,55 @@ TEST_CASE("EditHistory: composite undo unwinds in reverse so dependent commands 
 	REQUIRE(History.Undo(Model));
 	REQUIRE(Model.GetNodes().size() == 0);
 	REQUIRE(Model.GetLinks().size() == 0);
+}
+
+TEST_CASE("EditHistory: SetNodePosition round-trips through Undo + Redo", "[edithistory][position]")
+{
+	FGraphModel Model;
+	FEditHistory History;
+	Model.SetHistory(&History);
+
+	const FNodeId Id = Model.AddNode(std::make_shared<FGain>(), 100.0f, 200.0f);
+	History.Clear();
+
+	NodeSynth::FEditCommand Cmd;
+	Cmd.Type = NodeSynth::EEditCommand::SetNodePosition;
+	Cmd.NodeId = Id;
+	Cmd.OldX = 100.0f; Cmd.OldY = 200.0f;
+	Cmd.NewX = 350.0f; Cmd.NewY = 80.0f;
+	Model.GetNodes(); // settle reference (no-op)
+	{
+		auto* Rec = Model.FindNode(Id);
+		Rec->PositionX = Cmd.NewX;
+		Rec->PositionY = Cmd.NewY;
+	}
+	History.Push(Cmd);
+
+	History.Undo(Model);
+	REQUIRE(Model.GetNodes().at(Id).PositionX == 100.0f);
+	REQUIRE(Model.GetNodes().at(Id).PositionY == 200.0f);
+
+	History.Redo(Model);
+	REQUIRE(Model.GetNodes().at(Id).PositionX == 350.0f);
+	REQUIRE(Model.GetNodes().at(Id).PositionY == 80.0f);
+}
+
+TEST_CASE("EditHistory: GetUndoLabel describes the top-of-stack entry", "[edithistory][labels]")
+{
+	FGraphModel Model;
+	FEditHistory History;
+	Model.SetHistory(&History);
+
+	Model.AddNode(std::make_shared<FOscillator>());
+	const std::string Label = History.GetUndoLabel(0);
+	REQUIRE(Label.find("Oscillator") != std::string::npos);
+
+	History.BeginComposite();
+	Model.AddNode(std::make_shared<FGain>());
+	Model.AddNode(std::make_shared<FGain>());
+	History.EndComposite();
+	const std::string CompLabel = History.GetUndoLabel(0);
+	REQUIRE(CompLabel.find("Batch") != std::string::npos);
 }
 
 TEST_CASE("EditHistory: Clear empties both stacks", "[edithistory]")

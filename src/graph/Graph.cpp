@@ -222,28 +222,66 @@ namespace NodeSynth
 			return 0;
 		}
 
-		// An input port takes one connection at a time. Drop any existing.
+		// An input port takes one connection at a time. If something already
+		// terminates here, capture it so undo can restore it as part of a
+		// composite history entry (otherwise replacing a link silently loses
+		// the prior connection from the undo stack).
+		FLink Displaced{};
+		bool bDisplaced = false;
+		for (const FLink& L : Links)
+		{
+			if (L.ToNode == ToNode && L.ToPort == ToPort)
+			{
+				Displaced = L;
+				bDisplaced = true;
+				break;
+			}
+		}
 		Links.erase(std::remove_if(Links.begin(), Links.end(),
 			[ToNode, ToPort](const FLink& L) { return L.ToNode == ToNode && L.ToPort == ToPort; }),
 			Links.end());
 
 		if (WouldCreateCycle(Links, FromNode, ToNode))
 		{
+			// Restore the displaced link before bailing — caller's expectation
+			// is "AddLink failed, graph unchanged".
+			if (bDisplaced)
+			{
+				Links.push_back(Displaced);
+			}
 			return 0;
 		}
 
 		const FLinkId Id = NextLinkId++;
 		Links.push_back(FLink{ Id, FromNode, FromPort, ToNode, ToPort });
+
 		if (IsRecordingHistory())
 		{
-			FEditCommand Cmd;
-			Cmd.Type = EEditCommand::AddLink;
-			Cmd.LinkId = Id;
-			Cmd.FromNode = FromNode;
-			Cmd.FromPort = FromPort;
-			Cmd.ToNode = ToNode;
-			Cmd.ToPort = ToPort;
-			History->Push(std::move(Cmd));
+			// Composite when the new link displaced an existing one, so a
+			// single Undo restores both endpoints (remove the new one + put
+			// the old one back).
+			const bool bComposite = bDisplaced;
+			if (bComposite) { History->BeginComposite(); }
+			if (bDisplaced)
+			{
+				FEditCommand RemoveCmd;
+				RemoveCmd.Type = EEditCommand::RemoveLink;
+				RemoveCmd.LinkId = Displaced.Id;
+				RemoveCmd.FromNode = Displaced.FromNode;
+				RemoveCmd.FromPort = Displaced.FromPort;
+				RemoveCmd.ToNode = Displaced.ToNode;
+				RemoveCmd.ToPort = Displaced.ToPort;
+				History->Push(std::move(RemoveCmd));
+			}
+			FEditCommand AddCmd;
+			AddCmd.Type = EEditCommand::AddLink;
+			AddCmd.LinkId = Id;
+			AddCmd.FromNode = FromNode;
+			AddCmd.FromPort = FromPort;
+			AddCmd.ToNode = ToNode;
+			AddCmd.ToPort = ToPort;
+			History->Push(std::move(AddCmd));
+			if (bComposite) { History->EndComposite(); }
 		}
 		return Id;
 	}
