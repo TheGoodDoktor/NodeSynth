@@ -123,10 +123,12 @@ This is a **week of work minimum** for a generic-host fallback, **multiple weeks
 5a (Presets)             ──┐
 5b (Stereo)              ──┼──── ship Phase 5
 5c (Oversampling + Mods) ──┘
-5d (VST3) ────────── optional, gate on demand
+5d (VST3) ────────── DEFERRED — user opted out 2026-05-02
 ```
 
-5a is independent of 5b/5c (presets work fine in mono). 5b is the architectural change everything else benefits from; do it before 5c. 5d is a separate target.
+5a is independent of 5b/5c (presets work fine in mono). 5b is the architectural change everything else benefits from; do it before 5c.
+
+5d is **not in scope** for the foreseeable future. The plan stays in this doc as a pointer in case demand changes, but treat Phase 5 as closed once 5c lands.
 
 ### Phase 5a — Presets (~1 day)
 
