@@ -86,12 +86,28 @@ namespace NodeSynth
 			Allocators = std::move(InAllocators);
 		}
 
+		// UI-thread API for MIDI Learn: drain all currently-buffered CC
+		// events. The visitor receives (channel 1..16, cc 0..127, value 0..127)
+		// per event and runs once per drained message. Caller invokes once
+		// per UI frame from FGraphEditorPanel::Draw.
+		template<typename Visitor>
+		void DrainCcEvents(Visitor&& Visit)
+		{
+			FMidiEvent Event;
+			while (CcRing.Pop(Event))
+			{
+				const uint8_t Channel = (Event.Status & 0x0F) + 1;
+				Visit(Channel, Event.Data1, Event.Data2);
+			}
+		}
+
 	private:
 		void RefreshDeviceList();
 		void ReopenIfNeeded();
 
 		std::unique_ptr<RtMidiIn> Rt;
-		FMidiRing Ring;
+		FMidiRing Ring;        // note events → audio thread
+		FMidiCcRing CcRing;    // CC events  → UI thread (MIDI Learn)
 
 		// UI-thread data. Device list is rebuilt each time we open the param panel.
 		std::vector<std::string> DeviceNames;

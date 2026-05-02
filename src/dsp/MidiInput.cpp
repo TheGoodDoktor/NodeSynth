@@ -179,7 +179,16 @@ namespace NodeSynth
 		Event.Status = Bytes[0];
 		Event.Data1 = Bytes[1];
 		Event.Data2 = Bytes[2];
-		Ring.Push(Event);  // dropped silently if ring is full
+		// Route CC ($Bx) into the UI-thread ring used by MIDI Learn; everything
+		// else (note on/off, pitch bend, etc.) into the audio-thread note ring.
+		if ((Event.Status & 0xF0) == 0xB0)
+		{
+			CcRing.Push(Event);
+		}
+		else
+		{
+			Ring.Push(Event);
+		}
 	}
 
 	void FMidiInput::Prepare(double InSampleRate)

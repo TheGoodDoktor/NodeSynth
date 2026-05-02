@@ -64,4 +64,11 @@ namespace NodeSynth
 	};
 
 	using FMidiRing = TSpscMidiRing<256>;
+
+	// Same SPSC ring shape, separate instance for CC events drained by the UI
+	// thread. Note events go to FMidiRing (audio-thread consumer); CC events
+	// go to FMidiCcRing (UI-thread consumer for MIDI Learn / mapping
+	// dispatch). Two rings keeps each path strictly single-producer /
+	// single-consumer.
+	using FMidiCcRing = TSpscMidiRing<256>;
 }
