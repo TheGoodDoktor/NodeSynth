@@ -62,24 +62,38 @@ namespace NodeSynth
 		// Virtual VBI timer: a cycle counter that pulses M6502_IRQ at a
 		// configurable rate. Used for PSID VBI-mode tunes; the m6526 handles
 		// CIA-mode IRQs natively so this stays disabled in that path.
+		// VbiIrqHoldCycles is the per-pulse "IRQ stays asserted for N cycles
+		// after VBI fires" countdown — needed because m6526_tick may clear
+		// M6502_IRQ within the same cycle (OR-wired IRQ on real hardware,
+		// each source individually pulls the line; here we have to defend
+		// against CIA clearing the bit). 16 cycles gives the CPU plenty of
+		// time to finish its current instruction and start the IRQ sequence.
 		bool bVbiEnabled = false;
 		uint32_t VbiCyclesPerTick = 0;
 		uint32_t VbiCycleCounter = 0;
+		uint32_t VbiIrqHoldCycles = 0;
 
 		void TickOneCycle(std::vector<FSidRegisterWrite>* OutWrites,
 			uint16_t SampleOffset, float* AccumSample, uint32_t* AccumCount)
 		{
-			// 0) Virtual VBI timer (PSID VBI-mode interrupt source). Pulse
-			//    M6502_IRQ for one cycle at the configured rate. m6502_tick
-			//    samples IRQ on its own clock edge so a one-cycle assertion
-			//    is enough.
+			// 0) Virtual VBI timer (PSID VBI-mode interrupt source). Each tick
+			//    increments the counter; when it crosses VbiCyclesPerTick
+			//    we trigger a hold-down of M6502_IRQ for ~16 cycles so the
+			//    CPU has time to finish its current instruction and start
+			//    servicing the interrupt. The m6526 ticks may otherwise
+			//    clear our bit between IRQ events.
 			if (bVbiEnabled)
 			{
 				if (++VbiCycleCounter >= VbiCyclesPerTick)
 				{
 					VbiCycleCounter = 0;
-					Pins |= M6502_IRQ;
+					VbiIrqHoldCycles = 16;
 				}
+			}
+			if (VbiIrqHoldCycles > 0)
+			{
+				Pins |= M6502_IRQ;
+				--VbiIrqHoldCycles;
 			}
 
 			// 1) Tick the CPU. It puts an address + RW on the pin word; on
@@ -289,22 +303,26 @@ namespace NodeSynth
 
 	bool FSidEmulator::RunInitRoutine(uint16_t InitAddr, uint8_t Subtune, uint32_t MaxInstructions)
 	{
-		// Push the sentinel return address minus one onto the 6502 stack so
-		// the init's final RTS pops it and ends up at PC = $0000. RTS reads
-		// (lo, hi) off the stack and increments by 1; pushing $FFFF takes
-		// PC to $0000.
-		// Stack pointer post-reset is $FD; we push two bytes (high, low)
-		// and adjust S accordingly.
-		Impl->Ram[0x01FD] = 0xFF;  // high byte
-		Impl->Ram[0x01FC] = 0xFF;  // low byte
+		// After init RTSes, we want the CPU to spin idly until the next IRQ
+		// fires — *not* execute BRKs out of zeroed RAM, because BRK shares
+		// the IRQ vector and would re-enter the play stub at CPU rate
+		// (thousands of Hz) instead of the intended VBI rate (50/60 Hz).
+		// Solution: install a `JMP $0002` infinite loop at $0002 and push
+		// $0001 as the sentinel return so init's RTS pops to $0002.
+		//   $0002  4C 02 00   JMP $0002
+		Impl->Ram[0x0002] = 0x4C;
+		Impl->Ram[0x0003] = 0x02;
+		Impl->Ram[0x0004] = 0x00;
+		// Push sentinel = $0001 onto the stack (high byte first per 6502
+		// convention; RTS pops low then high then increments PC by 1).
+		Impl->Ram[0x01FD] = 0x00;  // high byte of $0001
+		Impl->Ram[0x01FC] = 0x01;  // low  byte of $0001
 		m6502_set_s(&Impl->Cpu, 0xFB);
 
-		// Belt-and-braces: install a BRK at $0000 so a runaway init that
-		// returns RTI-style or jumps to zero deterministically halts here.
-		// IRQ vector also points at $0000 → infinite loop, easy to detect.
-		Impl->Ram[0xFFFE] = 0x00;
+		// Default IRQ vector to the JMP-self loop too — if no play hook is
+		// installed yet (or init enables IRQs early), we won't run garbage.
+		Impl->Ram[0xFFFE] = 0x02;
 		Impl->Ram[0xFFFF] = 0x00;
-		Impl->Ram[0x0000] = 0x00;  // BRK opcode
 
 		m6502_set_a(&Impl->Cpu, Subtune);
 		m6502_set_x(&Impl->Cpu, 0);
@@ -312,9 +330,9 @@ namespace NodeSynth
 		m6502_set_pc(&Impl->Cpu, InitAddr);
 
 		// Step instruction-by-instruction until PC drops into the sentinel
-		// region or we exceed the budget. Anything in $0000-$00FF means
-		// either the RTS to the sentinel landed, or a wild jump went off
-		// into zero page — either way init isn't running normally any more.
+		// region or we exceed the budget. After init's RTS, PC == $0002
+		// (the JMP-self landing); also accept anything in zero page in case
+		// init RTI'd or jumped wild.
 		for (uint32_t I = 0; I < MaxInstructions; ++I)
 		{
 			StepInstruction();
