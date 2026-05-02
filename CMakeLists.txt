@@ -104,6 +104,20 @@ FetchContent_Declare(nfd
 )
 FetchContent_MakeAvailable(nfd)
 
+# ---- floooh/chips (Zlib): header-only 8-bit chip emulators -----------------
+# Used by FSidPlayer for m6502 + m6526 (CIA) + m6569 (VIC-II) + m6581 (SID).
+# Pure header-only; no CMake build, just populate and add the chips/ folder
+# to include paths.
+FetchContent_Declare(chips
+    GIT_REPOSITORY https://github.com/floooh/chips.git
+    GIT_TAG        master
+    GIT_SHALLOW    TRUE
+)
+FetchContent_GetProperties(chips)
+if(NOT chips_POPULATED)
+    FetchContent_Populate(chips)
+endif()
+
 # ---- imgui-node-editor ------------------------------------------------------
 # Upstream ships a CMakeLists that expects ImGui via find_package — not how we
 # vendor it. Populate the sources only and build a target of our own.
@@ -149,7 +163,7 @@ file(GLOB_RECURSE NODESYNTH_SOURCES CONFIGURE_DEPENDS
 )
 
 add_executable(nodesynth MACOSX_BUNDLE ${NODESYNTH_SOURCES})
-target_include_directories(nodesynth PRIVATE src)
+target_include_directories(nodesynth PRIVATE src "${chips_SOURCE_DIR}/chips")
 target_compile_definitions(nodesynth PRIVATE NOMINMAX)
 target_link_libraries(nodesynth PRIVATE imgui miniaudio imgui_node_editor_lib rtmidi nlohmann_json::nlohmann_json nfd)
 
@@ -221,8 +235,9 @@ if(NODESYNTH_BUILD_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/src/io/PatchSerializer.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/ui/NodeRegistry.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/MidiInput.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/sid/SidEmulator.cpp
     )
-    target_include_directories(nodesynth_tests PRIVATE src)
+    target_include_directories(nodesynth_tests PRIVATE src "${chips_SOURCE_DIR}/chips")
     target_compile_definitions(nodesynth_tests PRIVATE NOMINMAX)
     target_link_libraries(nodesynth_tests PRIVATE Catch2::Catch2WithMain nlohmann_json::nlohmann_json rtmidi)
 
