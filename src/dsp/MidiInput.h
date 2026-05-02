@@ -101,16 +101,31 @@ namespace NodeSynth
 			}
 		}
 
+		// Live status snapshot used by the property-panel diagnostic block.
+		// Returns the number of RtMidi-visible devices and the index of the
+		// currently-opened port (or -1 if none).
+		struct FStatus
+		{
+			bool bRtMidiAvailable = false;
+			std::vector<std::string> Devices;  // copy of the device list
+			int32_t OpenedPort = -1;           // -1 if no device open
+		};
+		FStatus GetStatus() const;
+
 	private:
-		void RefreshDeviceList();
+		void RefreshDeviceList() const;
 		void ReopenIfNeeded();
 
 		std::unique_ptr<RtMidiIn> Rt;
 		FMidiRing Ring;        // note events → audio thread
 		FMidiCcRing CcRing;    // CC events  → UI thread (MIDI Learn)
 
-		// UI-thread data. Device list is rebuilt each time we open the param panel.
-		std::vector<std::string> DeviceNames;
+		// UI-thread data. Refreshed every time GetParamInfos runs (per frame
+		// while the property panel is showing) so the Device combo stays
+		// current with hot-plugged controllers. Mutable because GetParamInfos
+		// is const and the standard property-panel widget machinery wants it
+		// that way.
+		mutable std::vector<std::string> DeviceNames;
 		std::atomic<int32_t> RequestedPort{ -1 };  // -1 = closed
 		int32_t OpenedPort = -1;
 

@@ -54,6 +54,12 @@ namespace NodeSynth
 
 	std::vector<FParamInfo> FMidiInput::GetParamInfos() const
 	{
+		// Always rescan before building the combo. RtMidi's getPortCount() is
+		// cheap (the OS keeps a cached device list) and rescanning per frame
+		// while the property panel is open lets hot-plugged controllers show
+		// up without a Rescan button or app restart.
+		RefreshDeviceList();
+
 		FParamInfo Dev;
 		Dev.Name = "Device";
 		Dev.Kind = EParamKind::Choice;
@@ -65,7 +71,8 @@ namespace NodeSynth
 		Dev.MinValue = 0.0f;
 		Dev.MaxValue = static_cast<float>(Dev.Choices.size() - 1);
 		Dev.DefaultValue = 0.0f;
-		Dev.Description = "MIDI input device. (none) closes any open port.";
+		Dev.Description = "MIDI input device. (none) closes any open port. "
+			"List refreshes when the property panel is open.";
 
 		FParamInfo Ch;
 		Ch.Name = "Channel";
@@ -101,8 +108,8 @@ namespace NodeSynth
 				RequestedPort.store(V);
 
 				// UI thread drives device open/close. Refresh the list and reopen.
-				const_cast<FMidiInput*>(this)->RefreshDeviceList();
-				const_cast<FMidiInput*>(this)->ReopenIfNeeded();
+				RefreshDeviceList();
+				ReopenIfNeeded();
 				break;
 			}
 			case Param_ChannelFilter:
@@ -117,7 +124,17 @@ namespace NodeSynth
 		}
 	}
 
-	void FMidiInput::RefreshDeviceList()
+	FMidiInput::FStatus FMidiInput::GetStatus() const
+	{
+		FStatus S;
+		S.bRtMidiAvailable = (Rt != nullptr);
+		RefreshDeviceList();
+		S.Devices = DeviceNames;
+		S.OpenedPort = OpenedPort;
+		return S;
+	}
+
+	void FMidiInput::RefreshDeviceList() const
 	{
 		DeviceNames.clear();
 		if (!Rt)

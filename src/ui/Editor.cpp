@@ -26,6 +26,7 @@
 #include "dsp/VirtualKeyboard.h"
 #include "ui/AdsrUI.h"
 #include "ui/MeterUI.h"
+#include "ui/MidiInputUI.h"
 #include "ui/NodeIcons.h"
 #include "ui/NodeRegistry.h"
 #include "ui/Palette.h"
@@ -947,6 +948,10 @@ namespace NodeSynth
 		if (auto* Sid = dynamic_cast<FSidPlayer*>(Rec->Node.get()))
 		{
 			DrawSidPlayerUI(*Sid);
+		}
+		if (auto* Mi = dynamic_cast<FMidiInput*>(Rec->Node.get()))
+		{
+			DrawMidiInputUI(*Mi);
 		}
 	}
 
