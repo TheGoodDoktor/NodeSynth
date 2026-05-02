@@ -785,6 +785,10 @@ int main()
 		EditorPanel.DrawHistoryPanel(Model);
 		ImGui::End();
 
+		ImGui::Begin("MIDI Mappings");
+		EditorPanel.DrawMidiMappingsPanel(Model);
+		ImGui::End();
+
 		if (bGraphChanged)
 		{
 			auto NewSnapshot = Model.Compile(AudioState.SampleRate.load());

@@ -1070,4 +1070,58 @@ namespace NodeSynth
 			ImGui::PopID();
 		}
 	}
+
+	void FGraphEditorPanel::DrawMidiMappingsPanel(FGraphModel& Model)
+	{
+		const auto& Mappings = Model.GetMidiMappings();
+		if (Mappings.empty())
+		{
+			ImGui::TextDisabled("No MIDI mappings.");
+			ImGui::TextDisabled("Right-click any param → MIDI Learn.");
+			return;
+		}
+
+		// Snapshot the (channel, cc) keys before iterating so removing inside
+		// the loop doesn't invalidate the underlying vector mid-traversal.
+		std::vector<std::pair<uint8_t, uint8_t>> ToRemove;
+		for (size_t I = 0; I < Mappings.size(); ++I)
+		{
+			const FMidiMapping& M = Mappings[I];
+			ImGui::PushID(static_cast<int>(I));
+
+			std::string Target = "(deleted)";
+			std::string ParamName;
+			if (FNodeRecord* Rec = Model.FindNode(M.NodeId); Rec && Rec->Node)
+			{
+				Target = Rec->Node->GetTypeName();
+				const auto Infos = Rec->Node->GetParamInfos();
+				if (M.ParamIndex < Infos.size())
+				{
+					ParamName = Infos[M.ParamIndex].Name;
+				}
+			}
+
+			if (ImGui::SmallButton("x"))
+			{
+				ToRemove.emplace_back(M.Channel, M.Cc);
+			}
+			ImGui::SameLine();
+			if (M.Channel == 0)
+			{
+				ImGui::Text("Any  CC%-3d  -> %s.%s",
+					static_cast<int>(M.Cc), Target.c_str(), ParamName.c_str());
+			}
+			else
+			{
+				ImGui::Text("Ch%-2d CC%-3d  -> %s.%s",
+					static_cast<int>(M.Channel), static_cast<int>(M.Cc),
+					Target.c_str(), ParamName.c_str());
+			}
+			ImGui::PopID();
+		}
+		for (const auto& [Ch, Cc] : ToRemove)
+		{
+			Model.RemoveMidiMapping(Ch, Cc);
+		}
+	}
 }

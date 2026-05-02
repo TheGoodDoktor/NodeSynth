@@ -65,6 +65,12 @@ namespace NodeSynth
 		// applies through the regular Undo/Redo flow (including recompile).
 		void DrawHistoryPanel(FGraphModel& Model);
 
+		// Lists all current MIDI controller bindings with a remove button per
+		// entry. Each row shows channel + CC + target (NodeType + param name).
+		// Click [x] to unmap; goes through the same undoable path as
+		// right-click → "Unmap MIDI" on the param widget.
+		void DrawMidiMappingsPanel(FGraphModel& Model);
+
 		// Pending history jump count (positive = number of Undos to apply,
 		// negative = number of Redos). Read + cleared by main.cpp.
 		int32_t TakePendingHistoryJump()
