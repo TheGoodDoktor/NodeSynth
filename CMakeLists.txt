@@ -236,6 +236,7 @@ if(NODESYNTH_BUILD_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/src/ui/NodeRegistry.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/MidiInput.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/sid/SidEmulator.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/sid/PsidLoader.cpp
     )
     target_include_directories(nodesynth_tests PRIVATE src "${chips_SOURCE_DIR}/chips")
     target_compile_definitions(nodesynth_tests PRIVATE NOMINMAX)

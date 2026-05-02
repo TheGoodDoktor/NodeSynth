@@ -52,6 +52,26 @@ namespace NodeSynth
 		// mid-instruction at best and races the CPU's pipelined fetch.
 		void BootCpu(uint16_t StartAddr);
 
+		// Run the PSID init routine. Sets A = Subtune, X = Y = 0, PC = InitAddr,
+		// and pushes a sentinel return address onto the stack so the init's
+		// final RTS lands at PC = $0000 (which we detect to know it returned).
+		// Steps the CPU instruction-by-instruction up to MaxInstructions; on
+		// timeout, returns false. Returns true on clean RTS-to-sentinel.
+		bool RunInitRoutine(uint16_t InitAddr, uint8_t Subtune,
+			uint32_t MaxInstructions = 1000000);
+
+		// Install a small stub at $FFE0 that does `JSR PlayAddr / RTI`, and
+		// point the IRQ vector ($FFFE-$FFFF) at it. Now any CPU IRQ trigger
+		// runs the play routine and returns to whatever was executing before.
+		void InstallPlayHook(uint16_t PlayAddr);
+
+		// Configure the virtual VBI interrupt source — a cycle counter that
+		// pulses M6502_IRQ at the given rate. For PSID's VBI-mode tunes,
+		// 50 Hz (PAL) or 60 Hz (NTSC). Disable (bEnabled=false) for CIA-mode
+		// tunes — the m6526 chip raises its own IRQs from the player code's
+		// timer programming.
+		void SetVbiTimer(bool bEnabled, double TickRateHz);
+
 		// Copy raw bytes into the 64 KB RAM array starting at LoadAddr.
 		// Wraps if Size + LoadAddr exceeds 0x10000 (with a clamp; defensive
 		// against oversized PSID payloads).

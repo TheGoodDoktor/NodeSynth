@@ -59,9 +59,29 @@ namespace NodeSynth
 		uint32_t CycleAccumulatorQ16 = 0;
 		bool bLastStepCompletedInstruction = false;
 
+		// Virtual VBI timer: a cycle counter that pulses M6502_IRQ at a
+		// configurable rate. Used for PSID VBI-mode tunes; the m6526 handles
+		// CIA-mode IRQs natively so this stays disabled in that path.
+		bool bVbiEnabled = false;
+		uint32_t VbiCyclesPerTick = 0;
+		uint32_t VbiCycleCounter = 0;
+
 		void TickOneCycle(std::vector<FSidRegisterWrite>* OutWrites,
 			uint16_t SampleOffset, float* AccumSample, uint32_t* AccumCount)
 		{
+			// 0) Virtual VBI timer (PSID VBI-mode interrupt source). Pulse
+			//    M6502_IRQ for one cycle at the configured rate. m6502_tick
+			//    samples IRQ on its own clock edge so a one-cycle assertion
+			//    is enough.
+			if (bVbiEnabled)
+			{
+				if (++VbiCycleCounter >= VbiCyclesPerTick)
+				{
+					VbiCycleCounter = 0;
+					Pins |= M6502_IRQ;
+				}
+			}
+
 			// 1) Tick the CPU. It puts an address + RW on the pin word; on
 			//    writes it also drives the data bus.
 			Pins = m6502_tick(&Cpu, Pins);
@@ -265,5 +285,73 @@ namespace NodeSynth
 	bool FSidEmulator::LastStepCompletedInstruction() const
 	{
 		return Impl->bLastStepCompletedInstruction;
+	}
+
+	bool FSidEmulator::RunInitRoutine(uint16_t InitAddr, uint8_t Subtune, uint32_t MaxInstructions)
+	{
+		// Push the sentinel return address minus one onto the 6502 stack so
+		// the init's final RTS pops it and ends up at PC = $0000. RTS reads
+		// (lo, hi) off the stack and increments by 1; pushing $FFFF takes
+		// PC to $0000.
+		// Stack pointer post-reset is $FD; we push two bytes (high, low)
+		// and adjust S accordingly.
+		Impl->Ram[0x01FD] = 0xFF;  // high byte
+		Impl->Ram[0x01FC] = 0xFF;  // low byte
+		m6502_set_s(&Impl->Cpu, 0xFB);
+
+		// Belt-and-braces: install a BRK at $0000 so a runaway init that
+		// returns RTI-style or jumps to zero deterministically halts here.
+		// IRQ vector also points at $0000 → infinite loop, easy to detect.
+		Impl->Ram[0xFFFE] = 0x00;
+		Impl->Ram[0xFFFF] = 0x00;
+		Impl->Ram[0x0000] = 0x00;  // BRK opcode
+
+		m6502_set_a(&Impl->Cpu, Subtune);
+		m6502_set_x(&Impl->Cpu, 0);
+		m6502_set_y(&Impl->Cpu, 0);
+		m6502_set_pc(&Impl->Cpu, InitAddr);
+
+		// Step instruction-by-instruction until PC drops into the sentinel
+		// region or we exceed the budget. Anything in $0000-$00FF means
+		// either the RTS to the sentinel landed, or a wild jump went off
+		// into zero page — either way init isn't running normally any more.
+		for (uint32_t I = 0; I < MaxInstructions; ++I)
+		{
+			StepInstruction();
+			const uint16_t PC = m6502_pc(&Impl->Cpu);
+			if (PC < 0x0100)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	void FSidEmulator::InstallPlayHook(uint16_t PlayAddr)
+	{
+		// Stub at $FFE0:
+		//   $FFE0  20 lo hi  JSR PlayAddr
+		//   $FFE3  40        RTI
+		// Then point the IRQ vector at the stub.
+		Impl->Ram[0xFFE0] = 0x20;
+		Impl->Ram[0xFFE1] = static_cast<uint8_t>(PlayAddr & 0xFF);
+		Impl->Ram[0xFFE2] = static_cast<uint8_t>((PlayAddr >> 8) & 0xFF);
+		Impl->Ram[0xFFE3] = 0x40;
+		Impl->Ram[0xFFFE] = 0xE0;
+		Impl->Ram[0xFFFF] = 0xFF;
+	}
+
+	void FSidEmulator::SetVbiTimer(bool bEnabled, double TickRateHz)
+	{
+		Impl->bVbiEnabled = bEnabled;
+		if (bEnabled && TickRateHz > 0.0)
+		{
+			Impl->VbiCyclesPerTick = static_cast<uint32_t>(Impl->ChipClockHz / TickRateHz);
+		}
+		else
+		{
+			Impl->VbiCyclesPerTick = 0;
+		}
+		Impl->VbiCycleCounter = 0;
 	}
 }
