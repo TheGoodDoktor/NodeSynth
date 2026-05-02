@@ -253,8 +253,43 @@ namespace NodeSynth
 
 			const size_t Rows = std::max(InPorts.size(), OutPorts.size());
 			const float PinIconSize = ImGui::GetTextLineHeight() * 0.85f;
+			const float IconLabelGap = 4.0f;
+
+			// Pre-measure each pin column so output pins can sit flush against
+			// the node's right edge. Measure title width too so a wide title
+			// pushes the column out instead of being clipped by the body.
+			float MaxLeftWidth = 0.0f;
+			float MaxRightWidth = 0.0f;
 			for (size_t Row = 0; Row < Rows; ++Row)
 			{
+				if (Row < InPorts.size())
+				{
+					const float W = PinIconSize + IconLabelGap
+						+ ImGui::CalcTextSize(InPorts[Row].Name.c_str()).x;
+					if (W > MaxLeftWidth) { MaxLeftWidth = W; }
+				}
+				if (Row < OutPorts.size())
+				{
+					const float W = ImGui::CalcTextSize(OutPorts[Row].Name.c_str()).x
+						+ IconLabelGap + PinIconSize;
+					if (W > MaxRightWidth) { MaxRightWidth = W; }
+				}
+			}
+			constexpr float MinNodeWidth = 120.0f;
+			constexpr float ColumnGap = 24.0f;
+			const float TitleW = ImGui::GetTextLineHeight() + 6.0f
+				+ ImGui::CalcTextSize(Node.GetTypeName()).x
+				+ (Rec.bPerVoice ? ImGui::CalcTextSize(" [poly]").x : 0.0f);
+			const float NodeContentWidth = std::max({
+				MinNodeWidth,
+				TitleW,
+				MaxLeftWidth + ColumnGap + MaxRightWidth
+			});
+			const float OutputColumnX = NodeContentWidth - MaxRightWidth;
+
+			for (size_t Row = 0; Row < Rows; ++Row)
+			{
+				const float RowStartX = ImGui::GetCursorPosX();
 				if (Row < InPorts.size())
 				{
 					const uint64_t Pid = EncodePinId(Id, static_cast<uint32_t>(Row), false);
@@ -266,17 +301,20 @@ namespace NodeSynth
 				}
 				else
 				{
-					ImGui::Dummy(ImVec2(60.0f, ImGui::GetTextLineHeight()));
+					ImGui::Dummy(ImVec2(1.0f, ImGui::GetTextLineHeight()));
 				}
 
 				if (Row < OutPorts.size())
 				{
-					ImGui::SameLine(140.0f);
+					// Right-align: jump the cursor to (row_start + OutputColumnX)
+					// so every output pin lands at the same X, flush to the
+					// node's right edge.
+					ImGui::SameLine(RowStartX + OutputColumnX);
 					const uint64_t Pid = EncodePinId(Id, static_cast<uint32_t>(Row), true);
 					const bool bConn = ConnectedPins.count(Pid) > 0;
 					ed::BeginPin(ed::PinId(Pid), ed::PinKind::Output);
 					ImGui::TextUnformatted(OutPorts[Row].Name.c_str());
-					ImGui::SameLine(0.0f, 4.0f);
+					ImGui::SameLine(0.0f, IconLabelGap);
 					DrawPinIcon(OutPorts[Row].Type, bConn, PinIconSize);
 					ed::EndPin();
 				}
