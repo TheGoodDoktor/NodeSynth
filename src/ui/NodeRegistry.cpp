@@ -21,6 +21,7 @@
 #include "dsp/Scale.h"
 #include "dsp/Scope.h"
 #include "dsp/Sequencer.h"
+#include "dsp/SidPlayer.h"
 #include "dsp/Svf.h"
 #include "dsp/Vca.h"
 #include "dsp/VirtualKeyboard.h"
@@ -204,6 +205,16 @@ namespace NodeSynth
 				"so the compiler clones them per voice in 3E-4.",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FVoiceAllocator>(); },
 			},
+			{
+				"SidPlayer", "SID Player",
+				"Plays a Commodore 64 .sid (PSID v1/v2) tune via the floooh/chips\n"
+				"6502 + SID emulators, and exposes both the synthesised audio\n"
+				"and the per-voice / global SID register state as outputs.\n"
+				"Use F_Cutoff / V*_Freq / V*_Gate as modulation sources for the\n"
+				"rest of the graph, or just listen to the audio out directly.\n"
+				"Audio fidelity is chiptune-grade (m6581 is simplified vs reSID).",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FSidPlayer>(); },
+			},
 		};
 		return Registry;
 	}
@@ -241,7 +252,14 @@ namespace NodeSynth
 			{
 				if (SourceInfos[I].Name == TargetInfos[J].Name)
 				{
-					Cloned->SetParamValue(J, GetParamValue(I));
+					if (SourceInfos[I].Kind == EParamKind::String)
+					{
+						Cloned->SetParamString(J, GetParamString(I));
+					}
+					else
+					{
+						Cloned->SetParamValue(J, GetParamValue(I));
+					}
 					break;
 				}
 			}

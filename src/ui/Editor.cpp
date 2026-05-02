@@ -8,6 +8,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <imgui_node_editor.h>
+#include <nfd.h>
 
 #include "dsp/Adsr.h"
 #include "dsp/Gain.h"
@@ -701,6 +702,44 @@ namespace NodeSynth
 					{
 						ImGui::SetTooltip("%s", Info.Description.c_str());
 					}
+					break;
+				}
+				case EParamKind::String:
+				{
+					std::string Current = Rec->Node->GetParamString(I);
+					// Editable text field; commits the new path on Enter or
+					// when the user clicks elsewhere (EnterReturnsTrue).
+					char Buf[1024];
+					const size_t Copy = std::min(Current.size(), sizeof(Buf) - 1);
+					std::memcpy(Buf, Current.data(), Copy);
+					Buf[Copy] = '\0';
+					ImGui::PushID(static_cast<int>(I));
+					ImGui::SetNextItemWidth(-FLT_MIN - 40.0f);
+					if (ImGui::InputText(Info.Name.c_str(), Buf, sizeof(Buf),
+						ImGuiInputTextFlags_EnterReturnsTrue))
+					{
+						Rec->Node->SetParamString(I, Buf);
+					}
+					if (!Info.Description.empty() && ImGui::IsItemHovered())
+					{
+						ImGui::SetTooltip("%s", Info.Description.c_str());
+					}
+					ImGui::SameLine();
+					if (ImGui::SmallButton("..."))
+					{
+						nfdu8char_t* OutPath = nullptr;
+						nfdu8filteritem_t Filter[1] = { { "SID Tune", "sid" } };
+						nfdopendialogu8args_t Args = {};
+						Args.filterList = Filter;
+						Args.filterCount = 1;
+						const nfdresult_t Result = NFD_OpenDialogU8_With(&OutPath, &Args);
+						if (Result == NFD_OKAY && OutPath)
+						{
+							Rec->Node->SetParamString(I, OutPath);
+							NFD_FreePathU8(OutPath);
+						}
+					}
+					ImGui::PopID();
 					break;
 				}
 				case EParamKind::Float:

@@ -31,7 +31,14 @@ namespace NodeSynth
 			const auto Infos = Rec.Node->GetParamInfos();
 			for (uint32_t I = 0; I < Infos.size(); ++I)
 			{
-				Params[Infos[I].Name] = Rec.Node->GetParamValue(I);
+				if (Infos[I].Kind == EParamKind::String)
+				{
+					Params[Infos[I].Name] = Rec.Node->GetParamString(I);
+				}
+				else
+				{
+					Params[Infos[I].Name] = Rec.Node->GetParamValue(I);
+				}
 			}
 			N["params"] = std::move(Params);
 			return N;
@@ -207,6 +214,7 @@ namespace NodeSynth
 				// Params — keyed by name, mapped to the node's current param index.
 				if (N.contains("params") && N["params"].is_object())
 				{
+					const auto Infos = Node->GetParamInfos();
 					for (const auto& [Name, Value] : N["params"].items())
 					{
 						const int32_t ParamIndex = FindParamIndex(*Node, Name);
@@ -216,12 +224,26 @@ namespace NodeSynth
 								Name.c_str(), TypeName.c_str());
 							continue;
 						}
-						const float V = Value.is_number()
-							? static_cast<float>(Value.get<double>())
-							: 0.0f;
-						Node->SetParamValue(static_cast<uint32_t>(ParamIndex), V);
-						Result.InitialParams.push_back(
-							FAudioCommand::MakeSetParam(Id, static_cast<uint32_t>(ParamIndex), V));
+						const EParamKind Kind = Infos[ParamIndex].Kind;
+						if (Kind == EParamKind::String)
+						{
+							const std::string S = Value.is_string()
+								? Value.get<std::string>()
+								: std::string{};
+							Node->SetParamString(static_cast<uint32_t>(ParamIndex), S);
+							// String params don't roundtrip through the audio
+							// command queue — they're UI-thread-only and not
+							// RT-safe (file I/O on SetParamString).
+						}
+						else
+						{
+							const float V = Value.is_number()
+								? static_cast<float>(Value.get<double>())
+								: 0.0f;
+							Node->SetParamValue(static_cast<uint32_t>(ParamIndex), V);
+							Result.InitialParams.push_back(
+								FAudioCommand::MakeSetParam(Id, static_cast<uint32_t>(ParamIndex), V));
+						}
 					}
 				}
 			}

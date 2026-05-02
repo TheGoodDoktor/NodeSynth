@@ -44,6 +44,11 @@ namespace NodeSynth
 		Float,   // continuous slider, MinValue..MaxValue
 		Choice,  // combo box, integer index into Choices[]
 		Bool,    // checkbox, stored as 0.0f / 1.0f
+		String,  // text field + optional file picker; not stored as a float.
+		         // Float Get/SetParamValue are no-ops; use GetParamString /
+		         // SetParamString instead. Patch save/load roundtrips the
+		         // value via PatchSerializer's string-kind branch. Edit
+		         // history doesn't track string params in v1.
 	};
 
 	struct FParamInfo
@@ -84,6 +89,14 @@ namespace NodeSynth
 
 		virtual float GetParamValue(uint32_t Index) const { (void)Index; return 0.0f; }
 		virtual void SetParamValue(uint32_t Index, float Value) { (void)Index; (void)Value; }
+
+		// String-kind param accessors. Default implementations return empty
+		// / no-op so nodes that don't expose any String params don't need to
+		// override. Used by FSidPlayer for the .sid file path. NOT RT-safe
+		// — these methods may allocate, take filesystem locks, etc. Always
+		// call from the UI thread; never from the audio callback.
+		virtual std::string GetParamString(uint32_t Index) const { (void)Index; return {}; }
+		virtual void SetParamString(uint32_t Index, const std::string& Value) { (void)Index; (void)Value; }
 
 		virtual void Prepare(double SampleRate) { (void)SampleRate; }
 		virtual void Process(const FProcessContext& Ctx) = 0;
