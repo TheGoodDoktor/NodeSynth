@@ -297,8 +297,15 @@ namespace NodeSynth
 			}
 		}
 
-		// Draw links. The link the last compile rejected (if any) renders in
-		// red so the user can spot it without scanning the patch.
+		// Draw links. Color-code by source-port type to match the pin icons
+		// (audio = warm orange, control = teal) so routing is readable at a
+		// glance. The link the last compile rejected renders in red. All
+		// links use a fatter stroke than imgui-node-editor's default —
+		// thin hairlines are hard to follow on dense patches.
+		const ImColor LinkAudio  (255, 170,  60, 255);
+		const ImColor LinkControl(80,  220, 200, 255);
+		const ImColor LinkBad    (255,  90,  90, 255);
+		constexpr float LinkThickness = 3.0f;
 		for (const FLink& L : Model.GetLinks())
 		{
 			const bool bIsBadLink = CompileError.bHasError
@@ -306,19 +313,28 @@ namespace NodeSynth
 				&& L.FromPort == CompileError.FromPort
 				&& L.ToNode == CompileError.ToNode
 				&& L.ToPort == CompileError.ToPort;
-			if (bIsBadLink)
+
+			ImColor LinkCol = LinkAudio;
+			if (!bIsBadLink)
 			{
-				ed::Link(ed::LinkId(L.Id),
-					ed::PinId(EncodePinId(L.FromNode, L.FromPort, true)),
-					ed::PinId(EncodePinId(L.ToNode, L.ToPort, false)),
-					ImColor(255, 90, 90, 255), 2.5f);
+				if (FNodeRecord* Rec = Model.FindNode(L.FromNode); Rec && Rec->Node)
+				{
+					const auto Ports = Rec->Node->GetOutputPorts();
+					if (L.FromPort < Ports.size() && Ports[L.FromPort].Type == EPortType::Control)
+					{
+						LinkCol = LinkControl;
+					}
+				}
 			}
 			else
 			{
-				ed::Link(ed::LinkId(L.Id),
-					ed::PinId(EncodePinId(L.FromNode, L.FromPort, true)),
-					ed::PinId(EncodePinId(L.ToNode, L.ToPort, false)));
+				LinkCol = LinkBad;
 			}
+
+			ed::Link(ed::LinkId(L.Id),
+				ed::PinId(EncodePinId(L.FromNode, L.FromPort, true)),
+				ed::PinId(EncodePinId(L.ToNode, L.ToPort, false)),
+				LinkCol, LinkThickness);
 		}
 
 		// Creation: user drags a link between two pins.
