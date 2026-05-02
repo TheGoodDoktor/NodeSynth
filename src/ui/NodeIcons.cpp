@@ -597,4 +597,58 @@ namespace NodeSynth
 		ImGui::Dummy(ImVec2(Size, Size));
 		ImGui::SameLine(0.0f, 6.0f);
 	}
+
+	void DrawPinIcon(EPortType Type, bool bConnected, float Size)
+	{
+		// Audio = circle (warm orange); Control = diamond (teal). Filled when
+		// connected, outlined otherwise. Same shape conventions as
+		// imgui-node-editor's blueprints example, scaled to the current font.
+		const ImU32 AudioCol   = IM_COL32(255, 170,  60, 255);
+		const ImU32 ControlCol = IM_COL32( 80, 220, 200, 255);
+		const ImU32 Col = (Type == EPortType::Audio) ? AudioCol : ControlCol;
+
+		ImDrawList* Draw = ImGui::GetWindowDrawList();
+		const ImVec2 Cursor = ImGui::GetCursorScreenPos();
+		// Centre the icon vertically against a baseline of one text line so
+		// it visually aligns with the port name to its right.
+		const float LineH = ImGui::GetTextLineHeight();
+		const float Pad = (LineH - Size) * 0.5f;
+		const ImVec2 Centre(Cursor.x + Size * 0.5f, Cursor.y + Pad + Size * 0.5f);
+		const float R = Size * 0.45f;
+
+		if (Type == EPortType::Audio)
+		{
+			if (bConnected)
+			{
+				Draw->AddCircleFilled(Centre, R, Col, 16);
+			}
+			else
+			{
+				Draw->AddCircle(Centre, R, Col, 16, 1.6f);
+			}
+		}
+		else
+		{
+			// Diamond: 4 points on a rotated square.
+			const ImVec2 Pts[4] = {
+				ImVec2(Centre.x,       Centre.y - R),
+				ImVec2(Centre.x + R,   Centre.y),
+				ImVec2(Centre.x,       Centre.y + R),
+				ImVec2(Centre.x - R,   Centre.y),
+			};
+			if (bConnected)
+			{
+				Draw->AddConvexPolyFilled(Pts, 4, Col);
+			}
+			else
+			{
+				Draw->AddPolyline(Pts, 4, Col, ImDrawFlags_Closed, 1.6f);
+			}
+		}
+
+		// Reserve cursor space for the icon + a small gap, then SameLine for
+		// the label text that follows.
+		ImGui::Dummy(ImVec2(Size, LineH));
+		ImGui::SameLine(0.0f, 4.0f);
+	}
 }

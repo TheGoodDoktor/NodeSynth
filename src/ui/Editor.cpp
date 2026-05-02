@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <unordered_set>
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -217,6 +218,17 @@ namespace NodeSynth
 		// so hovering a pin doesn't simultaneously fire the node tooltip.
 		std::unordered_map<FNodeId, std::pair<ImVec2, ImVec2>> NodeTitleRects;
 
+		// Pre-compute which pins are connected so the icon renderer can show
+		// filled vs outlined glyphs without each pin walking the link list.
+		// Key matches EncodePinId so lookups are O(1).
+		std::unordered_set<uint64_t> ConnectedPins;
+		ConnectedPins.reserve(Model.GetLinks().size() * 2);
+		for (const FLink& L : Model.GetLinks())
+		{
+			ConnectedPins.insert(EncodePinId(L.FromNode, L.FromPort, true));
+			ConnectedPins.insert(EncodePinId(L.ToNode,   L.ToPort,   false));
+		}
+
 		// Draw nodes.
 		for (const auto& [Id, Rec] : Model.GetNodes())
 		{
@@ -240,12 +252,16 @@ namespace NodeSynth
 			ImGui::Dummy(ImVec2(120.0f, 2.0f));
 
 			const size_t Rows = std::max(InPorts.size(), OutPorts.size());
+			const float PinIconSize = ImGui::GetTextLineHeight() * 0.85f;
 			for (size_t Row = 0; Row < Rows; ++Row)
 			{
 				if (Row < InPorts.size())
 				{
-					ed::BeginPin(ed::PinId(EncodePinId(Id, static_cast<uint32_t>(Row), false)), ed::PinKind::Input);
-					ImGui::Text("-> %s", InPorts[Row].Name.c_str());
+					const uint64_t Pid = EncodePinId(Id, static_cast<uint32_t>(Row), false);
+					const bool bConn = ConnectedPins.count(Pid) > 0;
+					ed::BeginPin(ed::PinId(Pid), ed::PinKind::Input);
+					DrawPinIcon(InPorts[Row].Type, bConn, PinIconSize);
+					ImGui::TextUnformatted(InPorts[Row].Name.c_str());
 					ed::EndPin();
 				}
 				else
@@ -255,9 +271,13 @@ namespace NodeSynth
 
 				if (Row < OutPorts.size())
 				{
-					ImGui::SameLine(120.0f);
-					ed::BeginPin(ed::PinId(EncodePinId(Id, static_cast<uint32_t>(Row), true)), ed::PinKind::Output);
-					ImGui::Text("%s ->", OutPorts[Row].Name.c_str());
+					ImGui::SameLine(140.0f);
+					const uint64_t Pid = EncodePinId(Id, static_cast<uint32_t>(Row), true);
+					const bool bConn = ConnectedPins.count(Pid) > 0;
+					ed::BeginPin(ed::PinId(Pid), ed::PinKind::Output);
+					ImGui::TextUnformatted(OutPorts[Row].Name.c_str());
+					ImGui::SameLine(0.0f, 4.0f);
+					DrawPinIcon(OutPorts[Row].Type, bConn, PinIconSize);
 					ed::EndPin();
 				}
 			}

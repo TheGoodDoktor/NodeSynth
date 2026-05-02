@@ -1,5 +1,7 @@
 #pragma once
 
+#include "dsp/Node.h"
+
 struct ImDrawList;
 struct ImVec2;
 
@@ -14,4 +16,11 @@ namespace NodeSynth
 	// past it, then SameLine() so subsequent text/widgets sit next to the icon.
 	// Size matches ImGui::GetFrameHeight() for menu rows or GetTextLineHeight() for compact use.
 	void IconBeforeText(const char* TypeName, float Size);
+
+	// Draws a port icon (circle for Audio, diamond for Control) at the current
+	// cursor with the given size. Filled when the pin is connected, outlined
+	// otherwise. Colour scheme: Audio = warm yellow-orange, Control = teal.
+	// Advances the cursor past the icon and calls SameLine() so subsequent
+	// text sits to the right.
+	void DrawPinIcon(EPortType Type, bool bConnected, float Size);
 }
