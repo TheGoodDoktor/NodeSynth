@@ -19,6 +19,7 @@
 #include "dsp/Output.h"
 #include "dsp/Scope.h"
 #include "dsp/Sequencer.h"
+#include "dsp/SidPlayer.h"
 #include "dsp/Svf.h"
 #include "dsp/Vca.h"
 #include "dsp/VirtualKeyboard.h"
@@ -29,6 +30,7 @@
 #include "ui/Palette.h"
 #include "ui/ScopeUI.h"
 #include "ui/SequencerUI.h"
+#include "ui/SidPlayerUI.h"
 #include "ui/VirtualKeyboardUI.h"
 
 namespace ed = ax::NodeEditor;
@@ -792,6 +794,10 @@ namespace NodeSynth
 		if (auto* Meter = dynamic_cast<FMeter*>(Rec->Node.get()))
 		{
 			DrawMeterUI(*Meter);
+		}
+		if (auto* Sid = dynamic_cast<FSidPlayer*>(Rec->Node.get()))
+		{
+			DrawSidPlayerUI(*Sid);
 		}
 	}
 

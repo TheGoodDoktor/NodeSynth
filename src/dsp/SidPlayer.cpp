@@ -385,8 +385,20 @@ namespace NodeSynth
 		auto Loaded = LoadSidFile(Path, Err);
 		if (!Loaded)
 		{
+			const char* Msg = "Unknown load error";
+			switch (Err)
+			{
+				case ELoadError::FileNotFound:         Msg = "File not found"; break;
+				case ELoadError::FileTooShort:         Msg = "File too short to be a SID tune"; break;
+				case ELoadError::BadMagic:             Msg = "Not a SID file (bad magic — expected PSID/RSID)"; break;
+				case ELoadError::UnsupportedVersion:   Msg = "Unsupported PSID version"; break;
+				case ELoadError::RsidUnsupported:      Msg = "RSID v3 not supported (PSID v1/v2 only in v1)"; break;
+				case ELoadError::MultiSidUnsupported:  Msg = "Multi-SID tunes not supported (v1 limitation)"; break;
+				case ELoadError::MalformedDataSegment: Msg = "Malformed data segment in .sid file"; break;
+				default: break;
+			}
 			std::lock_guard<std::mutex> Lock(InfoMutex);
-			LoadError = "Load failed (error code " + std::to_string(static_cast<int>(Err)) + ")";
+			LoadError = Msg;
 			ActiveEmulator.store(nullptr, std::memory_order_release);
 			return;
 		}
