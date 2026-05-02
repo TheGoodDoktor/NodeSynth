@@ -339,6 +339,14 @@ namespace NodeSynth
 			const uint16_t PC = m6502_pc(&Impl->Cpu);
 			if (PC < 0x0100)
 			{
+				// Force the I (interrupt-disable) flag clear before play
+				// starts firing. PSID spec assumes init does CLI before
+				// returning, but plenty of HVSC tunes don't — and with the
+				// old BRK-loop bug they'd still play (BRK ignores I). Now
+				// that play only fires through real IRQ delivery, an init
+				// that leaves I set means total silence. Match libsidplayfp:
+				// always force I=0 here regardless of what init did.
+				m6502_set_p(&Impl->Cpu, m6502_p(&Impl->Cpu) & ~0x04);
 				return true;
 			}
 		}
