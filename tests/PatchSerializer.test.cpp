@@ -87,6 +87,54 @@ TEST_CASE("Patch serializer: round-trip preserves nodes, params, and links", "[p
 	std::filesystem::remove(Path);
 }
 
+TEST_CASE("Patch serializer: MIDI mappings round-trip", "[patch][midi]")
+{
+	FGraphModel Original;
+	auto GainN = std::make_shared<FGain>();
+	auto Out = std::make_shared<FOutput>();
+	const FNodeId GainId = Original.AddNode(GainN);
+	const FNodeId OutId = Original.AddNode(Out);
+	(void)OutId;
+	Original.AddLink(GainId, 0, OutId, 0);
+
+	NodeSynth::FMidiMapping M;
+	M.Channel = 1;
+	M.Cc = 16;
+	M.NodeId = GainId;
+	M.ParamIndex = 0;
+	Original.AddMidiMapping(M);
+
+	const auto Path = TempPatchPath();
+	REQUIRE(SavePatch(Original, Path));
+
+	auto Loaded = LoadPatch(Path);
+	REQUIRE(Loaded.has_value());
+	const auto& Mappings = Loaded->Model.GetMidiMappings();
+	REQUIRE(Mappings.size() == 1);
+	REQUIRE(Mappings[0].Channel == 1);
+	REQUIRE(Mappings[0].Cc == 16);
+	REQUIRE(Mappings[0].NodeId == GainId);
+	REQUIRE(Mappings[0].ParamIndex == 0);
+	std::filesystem::remove(Path);
+}
+
+TEST_CASE("Patch serializer: patch without midi_mappings field loads with empty list", "[patch][midi]")
+{
+	FGraphModel Original;
+	auto GainN = std::make_shared<FGain>();
+	auto Out = std::make_shared<FOutput>();
+	Original.AddNode(GainN);
+	Original.AddNode(Out);
+
+	const auto Path = TempPatchPath();
+	REQUIRE(SavePatch(Original, Path));
+
+	auto Loaded = LoadPatch(Path);
+	REQUIRE(Loaded.has_value());
+	REQUIRE(Loaded->Model.GetMidiMappings().empty());
+	std::filesystem::remove(Path);
+}
+
 TEST_CASE("Patch serializer: InitialParams mirror saved param values", "[patch]")
 {
 	FGraphModel Original;

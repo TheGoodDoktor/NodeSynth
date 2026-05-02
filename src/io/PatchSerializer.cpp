@@ -106,6 +106,23 @@ namespace NodeSynth
 		}
 		Root["links"] = std::move(Links);
 
+		// MIDI mappings — only emit the array if there are any, so older
+		// patches stay diff-clean.
+		if (!Model.GetMidiMappings().empty())
+		{
+			json Mappings = json::array();
+			for (const FMidiMapping& M : Model.GetMidiMappings())
+			{
+				json J;
+				J["channel"] = static_cast<int>(M.Channel);
+				J["cc"] = static_cast<int>(M.Cc);
+				J["node_id"] = static_cast<uint64_t>(M.NodeId);
+				J["param_index"] = M.ParamIndex;
+				Mappings.push_back(std::move(J));
+			}
+			Root["midi_mappings"] = std::move(Mappings);
+		}
+
 		try
 		{
 			std::ofstream Out(Path);
@@ -270,6 +287,24 @@ namespace NodeSynth
 						static_cast<unsigned long long>(FromNode), FromPort,
 						static_cast<unsigned long long>(ToNode), ToPort);
 				}
+			}
+		}
+
+		// -- MIDI mappings --------------------------------------------------------
+		// Optional, additive — older patches without this key load with no
+		// mappings (back-compat). Stale mappings (target node deleted before
+		// save somehow) silently no-op via FindNode failure at apply time.
+		if (Root.contains("midi_mappings") && Root["midi_mappings"].is_array())
+		{
+			for (const json& J : Root["midi_mappings"])
+			{
+				FMidiMapping M;
+				M.Channel = static_cast<uint8_t>(J.value("channel", 0));
+				M.Cc = static_cast<uint8_t>(J.value("cc", 0));
+				M.NodeId = J.value("node_id", uint64_t{ 0 });
+				M.ParamIndex = J.value("param_index", uint32_t{ 0 });
+				if (M.NodeId == 0) { continue; }
+				Result.Model.AddMidiMapping(M);
 			}
 		}
 
