@@ -152,7 +152,7 @@ This is a **week of work minimum** for a generic-host fallback, **multiple weeks
 
 - **`FOversampler` utility.** Polyphase half-band FIR up- and down-sampler in `src/dsp/Oversampler.h`. ~31-tap default. Pre-allocates buffers in `Prepare`. Tests assert frequency-response (passband flat to ~0.45 Nyquist, stopband down >60 dB) and recursion correctness for 4x.
 - **`FWaveshaper` opt-in.** Adds `Param_Oversample` (Choice: 1x / 2x / 4x). At 1x, behaves identically to today (regression-safe). At 2x/4x, wraps the existing per-shape transfer functions in upsample → process → downsample.
-- **`FOscillator` opt-in.** Same Param_Oversample. Marginal benefit at low pitches; meaningful at the top octave for Square / Saw.
+- **`FOscillator` opt-in.** ~~Same Param_Oversample. Marginal benefit at low pitches; meaningful at the top octave for Square / Saw.~~ **Deferred to a v2 follow-up.** PolyBLEP already mitigates oscillator aliasing; the implementation pattern is meaningfully more complex than `FWaveshaper`'s (the per-sample loop has stateful smoothers, phase accumulator, PolyBLEP corrections — all of which need re-prepared at 2x rate). Plan note about "marginal benefit" applies; ship `FWaveshaper` opt-in alone for v1 and revisit if user demand surfaces.
 - **`FChorus` node.** New node, `src/dsp/Chorus.h`. Stereo, params per §1.6.
 - **`FFlanger` node.** New node, `src/dsp/Flanger.h`. Stereo, params per §1.6, with feedback path.
 - **Preset coverage.** Add at least one preset that uses each new effect, dropped into `presets/fx/`.

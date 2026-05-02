@@ -4,9 +4,11 @@
 
 #include "dsp/Add.h"
 #include "dsp/Adsr.h"
+#include "dsp/Chorus.h"
 #include "dsp/Clock.h"
 #include "dsp/Constant.h"
 #include "dsp/Delay.h"
+#include "dsp/Flanger.h"
 #include "dsp/Gain.h"
 #include "dsp/GateButton.h"
 #include "dsp/Lfo.h"
@@ -159,6 +161,21 @@ namespace NodeSynth
 				"Mono in / mono out. Wet/dry mix is internal so the node drops in as\n"
 				"a passthrough effect without an external blender.",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FReverb>(); },
+			},
+			{
+				"Chorus", "Chorus",
+				"Stereo modulated-delay chorus. Two delay lines (one per channel)\n"
+				"with their tap positions modulated by an LFO; L and R LFOs are\n"
+				"90° out of phase for stereo width. Optional 1/2/3 voice stack.\n"
+				"No feedback path — that's flanger territory.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FChorus>(); },
+			},
+			{
+				"Flanger", "Flanger",
+				"Stereo flanger: short modulated delay (≤10 ms) with a feedback\n"
+				"path that creates the comb-filter sweep. Negative feedback inverts\n"
+				"the comb's harmonic emphasis. L and R LFOs are 90° out of phase.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FFlanger>(); },
 			},
 			{
 				"Waveshaper", "Waveshaper",
