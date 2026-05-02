@@ -107,5 +107,13 @@ namespace NodeSynth
 		// History panel jump request. Positive = Undo N times, negative = Redo.
 		// Main.cpp polls via TakePendingHistoryJump.
 		int32_t PendingHistoryJump = 0;
+
+		// MIDI Learn state. When LearnTargetNodeId != 0, the editor is in
+		// learn mode for the named (NodeId, ParamIndex) target — the next
+		// CC event past the start-time guard window establishes the binding.
+		// Esc clears the state.
+		FNodeId  LearnTargetNodeId = 0;
+		uint32_t LearnTargetParamIndex = 0;
+		double   LearnStartTimeSeconds = 0.0;
 	};
 }

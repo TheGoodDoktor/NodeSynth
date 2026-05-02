@@ -1,6 +1,7 @@
 #include "ui/Editor.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -79,9 +80,116 @@ namespace NodeSynth
 		}
 	}
 
+	namespace
+	{
+		// Apply a CC value (0..127) to a node param, using the param's kind
+		// (Float / Choice / Bool) and range. Mirrors the slider-widget dual
+		// write: SetParamValue on the node + push SetParam audio command.
+		void ApplyCcToParam(FGraphModel& Model, const FMidiMapping& M, uint8_t CcValue,
+			FAudioCommandRing* CommandRing)
+		{
+			FNodeRecord* Rec = Model.FindNode(M.NodeId);
+			if (!Rec || !Rec->Node) { return; }
+			const auto Infos = Rec->Node->GetParamInfos();
+			if (M.ParamIndex >= Infos.size()) { return; }
+			const FParamInfo& Info = Infos[M.ParamIndex];
+
+			const float Norm = static_cast<float>(CcValue) / 127.0f;
+			float NewValue = 0.0f;
+			switch (Info.Kind)
+			{
+				case EParamKind::Bool:
+					NewValue = (CcValue >= 64) ? 1.0f : 0.0f;
+					break;
+				case EParamKind::Choice:
+				{
+					if (Info.Choices.empty()) { return; }
+					const int32_t Count = static_cast<int32_t>(Info.Choices.size());
+					int32_t Idx = static_cast<int32_t>(Norm * Count);
+					if (Idx < 0) { Idx = 0; }
+					if (Idx >= Count) { Idx = Count - 1; }
+					NewValue = static_cast<float>(Idx);
+					break;
+				}
+				case EParamKind::Float:
+				default:
+				{
+					if (Info.bLogarithmic && Info.MinValue > 0.0f && Info.MaxValue > 0.0f)
+					{
+						const float Ratio = Info.MaxValue / Info.MinValue;
+						NewValue = Info.MinValue * std::pow(Ratio, Norm);
+					}
+					else
+					{
+						NewValue = Info.MinValue + Norm * (Info.MaxValue - Info.MinValue);
+					}
+					break;
+				}
+				case EParamKind::String:
+					return;  // not mappable
+			}
+
+			Rec->Node->SetParamValue(M.ParamIndex, NewValue);
+			if (CommandRing)
+			{
+				CommandRing->Push(FAudioCommand::MakeSetParam(M.NodeId, M.ParamIndex, NewValue));
+			}
+		}
+
+		// Locate the (single) FMidiInput node in the graph, if any. Returns
+		// nullptr if the user hasn't placed one.
+		FMidiInput* FindMidiInput(FGraphModel& Model)
+		{
+			for (const auto& [Id, Rec] : Model.GetNodes())
+			{
+				if (auto* Mi = dynamic_cast<FMidiInput*>(Rec.Node.get()))
+				{
+					return Mi;
+				}
+			}
+			return nullptr;
+		}
+	}
+
 	bool FGraphEditorPanel::Draw(FGraphModel& Model)
 	{
 		bool bChanged = false;
+
+		// MIDI CC drain — runs every frame regardless of whether the property
+		// panel is showing a node. CC events feed two consumers:
+		//   1) Learn mode: capture the next CC after a 200 ms guard window.
+		//   2) Otherwise: apply any matching mapping to its target param.
+		if (FMidiInput* Mi = FindMidiInput(Model))
+		{
+			const double Now = ImGui::GetTime();
+			Mi->DrainCcEvents([&](uint8_t Channel, uint8_t Cc, uint8_t Value)
+			{
+				if (LearnTargetNodeId != 0 && (Now - LearnStartTimeSeconds) > 0.2)
+				{
+					FMidiMapping M;
+					M.Channel = Channel;
+					M.Cc = Cc;
+					M.NodeId = LearnTargetNodeId;
+					M.ParamIndex = LearnTargetParamIndex;
+					Model.AddMidiMapping(M);
+					LearnTargetNodeId = 0;
+					return;
+				}
+				// Apply existing mappings. Channel == 0 means "any channel".
+				for (const FMidiMapping& M : Model.GetMidiMappings())
+				{
+					if (M.Cc != Cc) { continue; }
+					if (M.Channel != 0 && M.Channel != Channel) { continue; }
+					ApplyCcToParam(Model, M, Value, CommandRing);
+				}
+			});
+		}
+
+		// Esc cancels learn mode without binding.
+		if (LearnTargetNodeId != 0 && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+		{
+			LearnTargetNodeId = 0;
+		}
 
 		// Compile-error banner. Sits above the editor canvas — high visibility,
 		// dismissed automatically when the user fixes the link.
@@ -775,6 +883,47 @@ namespace NodeSynth
 					}
 					break;
 				}
+			}
+
+			// MIDI Learn UI per param: right-click context menu (Learn / Unmap)
+			// + small inline badge showing the bound CC or learn-mode marker.
+			// Attached to whichever widget the switch last drew. String params
+			// are not MIDI-mappable; their context menu is silently skipped.
+			if (Info.Kind != EParamKind::String)
+			{
+				const FMidiMapping* Mapped = Model.FindMidiMapping(Rec->Id, I);
+				const bool bLearningThis = (LearnTargetNodeId == Rec->Id && LearnTargetParamIndex == I);
+
+				ImGui::PushID(static_cast<int>(I));
+				if (ImGui::BeginPopupContextItem("midi_ctx"))
+				{
+					if (ImGui::MenuItem("MIDI Learn"))
+					{
+						LearnTargetNodeId = Rec->Id;
+						LearnTargetParamIndex = I;
+						LearnStartTimeSeconds = ImGui::GetTime();
+					}
+					if (ImGui::MenuItem("Unmap MIDI", nullptr, false, Mapped != nullptr))
+					{
+						if (Mapped)
+						{
+							Model.RemoveMidiMapping(Mapped->Channel, Mapped->Cc);
+						}
+					}
+					ImGui::EndPopup();
+				}
+				if (bLearningThis)
+				{
+					ImGui::SameLine();
+					ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.30f, 1.0f), "[LEARN]");
+				}
+				else if (Mapped)
+				{
+					ImGui::SameLine();
+					ImGui::TextColored(ImVec4(0.55f, 0.85f, 1.0f, 1.0f),
+						"CC%d", static_cast<int>(Mapped->Cc));
+				}
+				ImGui::PopID();
 			}
 		}
 
