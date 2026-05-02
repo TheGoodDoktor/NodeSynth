@@ -23,4 +23,10 @@ namespace NodeSynth
 	// Advances the cursor past the icon and calls SameLine() so subsequent
 	// text sits to the right.
 	void DrawPinIcon(EPortType Type, bool bConnected, float Size);
+
+	// Returns a packed ImU32 colour matching the category accent the node
+	// editor's title-bar tint uses. Same colour as the icon dispatch in
+	// DrawNodeIcon, so glyph and header agree visually. Default-category
+	// fallback for unknown types.
+	unsigned int GetCategoryColor(const char* TypeName);
 }

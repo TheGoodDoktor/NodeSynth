@@ -598,6 +598,42 @@ namespace NodeSynth
 		ImGui::SameLine(0.0f, 6.0f);
 	}
 
+	unsigned int GetCategoryColor(const char* TypeName)
+	{
+		// Same dispatch table as DrawNodeIcon, returning the accent colour
+		// instead of drawing the glyph. Order matches DrawNodeIcon for
+		// auditability — when adding new node types, update both.
+		if (TypeName == nullptr) { return ColAmp; }
+		if (std::strcmp(TypeName, "Oscillator") == 0)     { return ColSource; }
+		if (std::strcmp(TypeName, "Gain") == 0)           { return ColAmp; }
+		if (std::strcmp(TypeName, "VCA") == 0)            { return ColAmp; }
+		if (std::strcmp(TypeName, "SVF") == 0)            { return ColFilter; }
+		if (std::strcmp(TypeName, "ADSR") == 0)           { return ColControl; }
+		if (std::strcmp(TypeName, "Gate") == 0)           { return ColControl; }
+		if (std::strcmp(TypeName, "MIDI") == 0)           { return ColInput; }
+		if (std::strcmp(TypeName, "VirtualKbd") == 0)     { return ColInput; }
+		if (std::strcmp(TypeName, "Output") == 0)         { return ColSink; }
+		if (std::strcmp(TypeName, "Add") == 0)            { return ColMath; }
+		if (std::strcmp(TypeName, "Multiply") == 0)       { return ColMath; }
+		if (std::strcmp(TypeName, "Scale") == 0)          { return ColMath; }
+		if (std::strcmp(TypeName, "Constant") == 0)       { return ColMath; }
+		if (std::strcmp(TypeName, "SampleHold") == 0)     { return ColMath; }
+		if (std::strcmp(TypeName, "LFO") == 0)            { return ColMath; }
+		if (std::strcmp(TypeName, "VoiceAllocator") == 0) { return ColInput; }
+		if (std::strcmp(TypeName, "Mixer") == 0)          { return ColAmp; }
+		if (std::strcmp(TypeName, "Delay") == 0)          { return ColEffect; }
+		if (std::strcmp(TypeName, "Reverb") == 0)         { return ColEffect; }
+		if (std::strcmp(TypeName, "Waveshaper") == 0)     { return ColEffect; }
+		if (std::strcmp(TypeName, "Chorus") == 0)         { return ColEffect; }
+		if (std::strcmp(TypeName, "Flanger") == 0)        { return ColEffect; }
+		if (std::strcmp(TypeName, "Clock") == 0)          { return ColControl; }
+		if (std::strcmp(TypeName, "Sequencer") == 0)      { return ColControl; }
+		if (std::strcmp(TypeName, "Scope") == 0)          { return ColAmp; }
+		if (std::strcmp(TypeName, "Meter") == 0)          { return ColAmp; }
+		if (std::strcmp(TypeName, "SidPlayer") == 0)      { return ColInput; }
+		return ColAmp;
+	}
+
 	void DrawPinIcon(EPortType Type, bool bConnected, float Size)
 	{
 		// All pins draw as circles; colour distinguishes the port type.

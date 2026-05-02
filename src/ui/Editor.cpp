@@ -291,6 +291,36 @@ namespace NodeSynth
 
 			ed::EndNode();
 
+			// Tinted header band per node category. Drawn into the node's
+			// background draw list so it sits behind the title text but
+			// above the editor's node fill. Uses the captured title rect,
+			// expanded slightly to bleed under the node's rounded border.
+			{
+				const auto It = NodeTitleRects.find(Id);
+				if (It != NodeTitleRects.end())
+				{
+					ImDrawList* BgDraw = ed::GetNodeBackgroundDrawList(ed::NodeId(Id));
+					if (BgDraw != nullptr)
+					{
+						const ImVec2 TitleMin = It->second.first;
+						const ImVec2 TitleMax = It->second.second;
+						// Tint = full category colour with low alpha, so the
+						// title text stays readable. Alpha 70/255 ≈ 27 %.
+						const ImU32 RawCol = GetCategoryColor(Node.GetTypeName());
+						const ImU32 TintedCol = (RawCol & 0x00FFFFFF) | (70u << 24);
+						// Expand the rect by the node-editor's padding so the
+						// fill reaches the node border on top + sides without
+						// bleeding past the bottom (where ports start).
+						constexpr float HeaderPad = 8.0f;
+						const ImVec2 BarMin(TitleMin.x - HeaderPad, TitleMin.y - HeaderPad);
+						const ImVec2 BarMax(TitleMax.x + HeaderPad, TitleMax.y + 2.0f);
+						const float Rounding = ed::GetStyle().NodeRounding;
+						BgDraw->AddRectFilled(BarMin, BarMax, TintedCol, Rounding,
+							ImDrawFlags_RoundCornersTop);
+					}
+				}
+			}
+
 			if (bFirstFrame)
 			{
 				ed::SetNodePosition(ed::NodeId(Id), ImVec2(Rec.PositionX, Rec.PositionY));
