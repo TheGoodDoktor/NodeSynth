@@ -130,6 +130,78 @@ TEST_CASE("PSID parser handles embedded load address (.prg style)", "[sid][psid]
 	REQUIRE(R->Bytecode[0] == 0x60);
 }
 
+TEST_CASE("PSID init+play with CIA-mode timer fires play through CIA-1 IRQs", "[sid][psid][cia]")
+{
+	// CIA-mode synthetic tune. Init programs CIA-1 timer A to underflow at
+	// ~50 Hz and enables timer A IRQ; the rest mirrors the VBI test. With a
+	// correctly-wired CIA → M6502_IRQ path, play fires at the configured
+	// rate exactly as VBI mode does.
+	//
+	// CIA-1 timer A latch period at PAL: 985248 / 50 ≈ 19704 = $4D08.
+	// Layout:
+	//   Init at $1000  (22 bytes total):
+	//     LDA #$08; STA $DC04   ; timer A latch lo
+	//     LDA #$4D; STA $DC05   ; timer A latch hi
+	//     LDA #$81; STA $DC0D   ; ICR: enable timer A IRQ (bit 7 + bit 0)
+	//     LDA #$11; STA $DC0E   ; CRA: start timer A, force load
+	//     CLI
+	//     RTS
+	//   Play at $1016 (= $1000 + 22):
+	//     LDA #$BC; STA $D400   ; voice 1 freq lo
+	//     LDA #$DE; STA $D401   ; voice 1 freq hi
+	//     LDA $DC0D             ; read CIA-1 ICR to ACK the timer A IRQ
+	//     RTS
+	const uint8_t Code[] = {
+		// Init at $1000 (offset 0..21):
+		0xA9, 0x08, 0x8D, 0x04, 0xDC,           // LDA #$08; STA $DC04
+		0xA9, 0x4D, 0x8D, 0x05, 0xDC,           // LDA #$4D; STA $DC05
+		0xA9, 0x81, 0x8D, 0x0D, 0xDC,           // LDA #$81; STA $DC0D
+		0xA9, 0x11, 0x8D, 0x0E, 0xDC,           // LDA #$11; STA $DC0E
+		0x58,                                    // CLI
+		0x60,                                    // RTS
+		// Play at $1016 (offset 22..35):
+		0xA9, 0xBC, 0x8D, 0x00, 0xD4,           // LDA #$BC; STA $D400
+		0xA9, 0xDE, 0x8D, 0x01, 0xD4,           // LDA #$DE; STA $D401
+		0xAD, 0x0D, 0xDC,                       // LDA $DC0D (ack)
+		0x60,                                    // RTS
+	};
+	std::vector<uint8_t> File = BuildPsidV2Header(
+		/*LoadAddr*/ 0x1000,
+		/*InitAddr*/ 0x1000,
+		/*PlayAddr*/ 0x1016,
+		/*Songs*/    1,
+		/*StartSong*/ 1,
+		/*Speed*/    1,    // bit 0 set → CIA mode for subtune 1
+		/*Flags*/    0x14);
+	File.insert(File.end(), Code, Code + sizeof(Code));
+
+	ELoadError Err;
+	auto R = ParseSidBytes(File.data(), File.size(), Err);
+	REQUIRE(R.has_value());
+
+	FSidEmulator Emu;
+	const double ChipClock = 985248.0;
+	Emu.Reset(ChipClock, 48000.0);
+	REQUIRE(NodeSynth::LoadAndInit(Emu, *R, /*Subtune*/ 1, ChipClock, Err));
+
+	std::vector<FSidRegisterWrite> AllWrites;
+	const uint32_t SamplesToRun = static_cast<uint32_t>(48000.0 * 0.05);
+	for (uint32_t S = 0; S < SamplesToRun; ++S)
+	{
+		Emu.TickOneAudioSample(AllWrites, 0);
+	}
+
+	bool bSawFreqLo = false;
+	bool bSawFreqHi = false;
+	for (const FSidRegisterWrite& W : AllWrites)
+	{
+		if (W.Reg == 0x00 && W.Value == 0xBC) { bSawFreqLo = true; }
+		if (W.Reg == 0x01 && W.Value == 0xDE) { bSawFreqHi = true; }
+	}
+	REQUIRE(bSawFreqLo);
+	REQUIRE(bSawFreqHi);
+}
+
 TEST_CASE("PSID init+play executes through the emulator", "[sid][psid]")
 {
 	// Synthetic tune layout, all at $1000:

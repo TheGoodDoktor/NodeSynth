@@ -432,6 +432,13 @@ namespace NodeSynth
 		ActiveEmulator.store(NewEmu, std::memory_order_release);
 	}
 
+	bool FSidPlayer::GetVoiceGate(uint32_t Voice) const
+	{
+		if (Voice >= 3) { return false; }
+		const uint32_t Out = VoiceBlocks[Voice].Gate;
+		return LastValue[Out] >= 0.5f;
+	}
+
 	FSidPlayer::FLoadStatus FSidPlayer::GetStatus() const
 	{
 		FLoadStatus S;

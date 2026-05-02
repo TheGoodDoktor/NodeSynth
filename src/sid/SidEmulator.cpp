@@ -73,6 +73,15 @@ namespace NodeSynth
 		uint32_t VbiCycleCounter = 0;
 		uint32_t VbiIrqHoldCycles = 0;
 
+		// IRQ-source latches captured on each chip's tick, OR'd back into the
+		// pin word at the start of the next cycle. Without this, m6526's
+		// "always rewrite IRQ bit based on my own state" behaviour silently
+		// suppresses concurrent IRQ sources — e.g. Cia2's tick clears Cia1's
+		// IRQ assertion when Cia2 has nothing pending. Real hardware OR-wires
+		// IRQs from all chips; we emulate that here.
+		bool bCia1IrqLatched = false;
+		bool bCia2IrqLatched = false;
+
 		void TickOneCycle(std::vector<FSidRegisterWrite>* OutWrites,
 			uint16_t SampleOffset, float* AccumSample, uint32_t* AccumCount)
 		{
@@ -80,8 +89,8 @@ namespace NodeSynth
 			//    increments the counter; when it crosses VbiCyclesPerTick
 			//    we trigger a hold-down of M6502_IRQ for ~16 cycles so the
 			//    CPU has time to finish its current instruction and start
-			//    servicing the interrupt. The m6526 ticks may otherwise
-			//    clear our bit between IRQ events.
+			//    servicing the interrupt.
+			bool bVbiWants = false;
 			if (bVbiEnabled)
 			{
 				if (++VbiCycleCounter >= VbiCyclesPerTick)
@@ -92,9 +101,16 @@ namespace NodeSynth
 			}
 			if (VbiIrqHoldCycles > 0)
 			{
-				Pins |= M6502_IRQ;
+				bVbiWants = true;
 				--VbiIrqHoldCycles;
 			}
+
+			// OR all IRQ sources together before m6502_tick. The CIA latches
+			// from the previous cycle drive this; their fresh values are
+			// captured below after each m6526_tick.
+			const bool bAnyIrq = bVbiWants || bCia1IrqLatched || bCia2IrqLatched;
+			if (bAnyIrq) { Pins |= M6502_IRQ; }
+			else         { Pins &= ~M6502_IRQ; }
 
 			// 1) Tick the CPU. It puts an address + RW on the pin word; on
 			//    writes it also drives the data bus.
@@ -140,13 +156,21 @@ namespace NodeSynth
 				if (AccumCount != nullptr) { *AccumCount += 1; }
 			}
 
+			// CIA ticks: clear M6502_IRQ before each so we can capture this
+			// chip's IRQ output cleanly. m6526 unconditionally rewrites the
+			// bit from its own state, so without isolation the second CIA
+			// would clobber the first's assertion.
 			Pins &= ~M6526_CS;
 			if (bCia1Sel) { Pins |= M6526_CS; }
+			Pins &= ~M6502_IRQ;
 			Pins = m6526_tick(&Cia1, Pins);
+			bCia1IrqLatched = (Pins & M6502_IRQ) != 0;
 
 			Pins &= ~M6526_CS;
 			if (bCia2Sel) { Pins |= M6526_CS; }
+			Pins &= ~M6502_IRQ;
 			Pins = m6526_tick(&Cia2, Pins);
+			bCia2IrqLatched = (Pins & M6502_IRQ) != 0;
 
 			// 5) RAM dispatch for any address that didn't hit a peripheral.
 			//    Color RAM ($D800-$DBFF) is a stub. $D000-$D3FF (would-be VIC
@@ -190,6 +214,10 @@ namespace NodeSynth
 		Impl->CyclesPerSampleQ16 = static_cast<uint32_t>(
 			(ChipClockHz / SampleRateHz) * 65536.0);
 		Impl->CycleAccumulatorQ16 = 0;
+		Impl->bCia1IrqLatched = false;
+		Impl->bCia2IrqLatched = false;
+		Impl->VbiIrqHoldCycles = 0;
+		Impl->VbiCycleCounter = 0;
 
 		// Init CPU. Setting M6502_BCD_DISABLED is fine for SID tunes (they
 		// don't generally use decimal mode and the C64 6510 has it).

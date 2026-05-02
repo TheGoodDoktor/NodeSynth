@@ -127,6 +127,12 @@ namespace NodeSynth
 		};
 		FLoadStatus GetStatus() const;
 
+		// Live gate state for voice 0..2 (corresponds to SID voices V1..V3).
+		// Reads the latched LastValue mirror — racy with the audio thread's
+		// Process loop, but the worst case is a one-frame stale reading,
+		// which is fine for a UI indicator. Returns false on out-of-range.
+		bool GetVoiceGate(uint32_t Voice) const;
+
 	private:
 		// Per-output buffer storage. Channel 0 carries content; channel 1 stays
 		// zero (mono node — wire broadcast handles downstream stereo consumers).

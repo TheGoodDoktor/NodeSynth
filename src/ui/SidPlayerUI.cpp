@@ -53,5 +53,25 @@ namespace NodeSynth
 		}
 		ImGui::Text("Region:   %s", Status.bIsNtsc ? "NTSC" : "PAL");
 		ImGui::Text("Model:    %s", Status.bIs8580 ? "8580" : "6581");
+
+		// Live per-voice gate indicators. Lights up green when the SID's
+		// V*n*_Gate bit is set; gray when off. Useful as a "is it actually
+		// playing" sanity check — silence with all three lit usually means
+		// the audio output isn't wired into the graph.
+		ImGui::Spacing();
+		ImGui::TextDisabled("Gates:");
+		ImGui::SameLine();
+		const ImVec4 OnColor(0.30f, 0.85f, 0.30f, 1.0f);
+		const ImVec4 OffColor(0.20f, 0.20f, 0.20f, 1.0f);
+		const ImVec2 LedSize(14.0f, 14.0f);
+		for (uint32_t V = 0; V < 3; ++V)
+		{
+			const bool bOn = Player.GetVoiceGate(V);
+			ImGui::PushID(static_cast<int>(V));
+			ImGui::ColorButton("##gate", bOn ? OnColor : OffColor,
+				ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoBorder, LedSize);
+			ImGui::PopID();
+			if (V < 2) { ImGui::SameLine(); }
+		}
 	}
 }
