@@ -82,4 +82,35 @@ namespace NodeSynth
 		// Floor / ceiling annotations.
 		ImGui::TextDisabled("Range: -60 dB to +6 dB. Yellow tick = 0 dB (clipping reference).");
 	}
+
+	void DrawMeterNodeBody(FMeter& Meter)
+	{
+		// Compact rendition for the node body: two short horizontal bars
+		// (Peak above, RMS below) with a small dB readout next to each.
+		// Width matches the node's body width (~120 px).
+		const float PeakLin = Meter.GetPeak();
+		const float RmsLin = Meter.GetRms();
+		const float PeakDb = LinearToDbFs(PeakLin);
+		const float RmsDb = LinearToDbFs(RmsLin);
+
+		constexpr float BarWidth = 80.0f;
+		constexpr float BarHeight = 6.0f;
+		ImDrawList* Draw = ImGui::GetWindowDrawList();
+
+		auto DrawRow = [&](const char* Label, float Db, float Fraction, ImU32 BarColour)
+		{
+			ImGui::TextDisabled("%s", Label);
+			ImGui::SameLine();
+			const ImVec2 Origin = ImGui::GetCursorScreenPos();
+			ImGui::InvisibleButton(Label, ImVec2(BarWidth, BarHeight));
+			DrawBar(Draw, Origin,
+				ImVec2(Origin.x + BarWidth, Origin.y + BarHeight),
+				Fraction, BarColour);
+			ImGui::SameLine();
+			ImGui::Text("%5.1f", Db);
+		};
+
+		DrawRow("P", PeakDb, DbToBarFraction(PeakDb), IM_COL32(255, 130, 130, 220));
+		DrawRow("R", RmsDb,  DbToBarFraction(RmsDb),  IM_COL32(120, 220, 130, 220));
+	}
 }

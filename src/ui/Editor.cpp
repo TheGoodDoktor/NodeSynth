@@ -261,6 +261,14 @@ namespace NodeSynth
 					ed::EndPin();
 				}
 			}
+
+			// Per-node body decorations (live readouts, etc.). Drawn between
+			// the port rows and ed::EndNode so they stack inside the node box.
+			if (auto* Meter = dynamic_cast<FMeter*>(Rec.Node.get()))
+			{
+				DrawMeterNodeBody(*Meter);
+			}
+
 			ed::EndNode();
 
 			if (bFirstFrame)
