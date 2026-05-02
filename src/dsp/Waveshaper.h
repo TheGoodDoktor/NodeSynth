@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include "dsp/Node.h"
+#include "dsp/Oversampler.h"
 #include "dsp/Smoother.h"
 
 namespace NodeSynth
@@ -33,6 +34,7 @@ namespace NodeSynth
 			Param_Shape,
 			Param_DriveDb,
 			Param_OutputDb,
+			Param_Oversample,
 			Param_COUNT,
 		};
 
@@ -63,6 +65,12 @@ namespace NodeSynth
 				{ "Output", -20.0f, 20.0f, 0.0f, false, EParamKind::Float, {},
 					"Post-gain in dB. Compensates for the level boost / cut from heavy\n"
 					"distortion. Smoothed." },
+				{ "Oversample", 0.0f, 1.0f, 0.0f, false, EParamKind::Choice,
+					{ "1x", "2x" },
+					"Run the shape function at twice the host sample rate to push\n"
+					"aliasing images further above Nyquist before they fold back.\n"
+					"Adds ~0.3 ms latency and modest CPU cost. 1x is a true bypass\n"
+					"(bit-identical to no oversampling)." },
 			};
 		}
 
@@ -70,10 +78,11 @@ namespace NodeSynth
 		{
 			switch (Index)
 			{
-				case Param_Shape:    return static_cast<float>(Shape.load(std::memory_order_relaxed));
-				case Param_DriveDb:  return DriveDb.load(std::memory_order_relaxed);
-				case Param_OutputDb: return OutputDb.load(std::memory_order_relaxed);
-				default:             return 0.0f;
+				case Param_Shape:      return static_cast<float>(Shape.load(std::memory_order_relaxed));
+				case Param_DriveDb:    return DriveDb.load(std::memory_order_relaxed);
+				case Param_OutputDb:   return OutputDb.load(std::memory_order_relaxed);
+				case Param_Oversample: return static_cast<float>(OversampleChoice.load(std::memory_order_relaxed));
+				default:               return 0.0f;
 			}
 		}
 
@@ -108,6 +117,14 @@ namespace NodeSynth
 					OutputDb.store(V, std::memory_order_relaxed);
 					break;
 				}
+				case Param_Oversample:
+				{
+					int32_t V = static_cast<int32_t>(Value);
+					if (V < 0) { V = 0; }
+					if (V > 1) { V = 1; }
+					OversampleChoice.store(static_cast<uint8_t>(V), std::memory_order_relaxed);
+					break;
+				}
 				default: break;
 			}
 		}
@@ -118,6 +135,7 @@ namespace NodeSynth
 			DriveSmoother.Reset(DbToLinear(DriveDb.load(std::memory_order_relaxed)));
 			OutputSmoother.Prepare(InSampleRate);
 			OutputSmoother.Reset(DbToLinear(OutputDb.load(std::memory_order_relaxed)));
+			Oversampler.Prepare(InSampleRate);
 		}
 
 		void Process(const FProcessContext& Ctx) override
@@ -140,13 +158,41 @@ namespace NodeSynth
 				return;
 			}
 
+			const bool b2x = (OversampleChoice.load(std::memory_order_relaxed) != 0);
+			if (!b2x)
+			{
+				// 1x path: bit-identical to pre-oversampling behaviour.
+				for (uint32_t I = 0; I < Ctx.BlockSize; ++I)
+				{
+					const float Drive = DriveSmoother.Tick();
+					const float OutGain = OutputSmoother.Tick();
+					const float Driven = AudioIn[I] * Drive;
+					Out[I] = ApplyShape(Driven, ShapeNow) * OutGain;
+				}
+				return;
+			}
+
+			// 2x path. Tick the smoothers once per host sample (so their time
+			// constants stay perceptually correct), capture into per-sample
+			// arrays, and apply each captured value to both upsampled samples
+			// derived from that host position. Drive / Output are
+			// "set-and-forget" parameters in practice — the slight reduction
+			// in modulation rate vs the 1x path is inaudible.
 			for (uint32_t I = 0; I < Ctx.BlockSize; ++I)
 			{
-				const float Drive = DriveSmoother.Tick();
-				const float OutGain = OutputSmoother.Tick();
-				const float Driven = AudioIn[I] * Drive;
-				Out[I] = ApplyShape(Driven, ShapeNow) * OutGain;
+				DriveSeq[I] = DriveSmoother.Tick();
+				OutGainSeq[I] = OutputSmoother.Tick();
 			}
+			Oversampler.Process(AudioIn, Out, Ctx.BlockSize,
+				[&](float* Buf, uint32_t N2x)
+				{
+					for (uint32_t I = 0; I < N2x; ++I)
+					{
+						const uint32_t HostIdx = I >> 1;
+						const float Driven = Buf[I] * DriveSeq[HostIdx];
+						Buf[I] = ApplyShape(Driven, ShapeNow) * OutGainSeq[HostIdx];
+					}
+				});
 		}
 
 	private:
@@ -196,8 +242,14 @@ namespace NodeSynth
 		std::atomic<uint8_t> Shape{ static_cast<uint8_t>(EWaveshape::TanhSoft) };
 		std::atomic<float>   DriveDb{ 0.0f };
 		std::atomic<float>   OutputDb{ 0.0f };
+		std::atomic<uint8_t> OversampleChoice{ 0 };  // 0 = 1x, 1 = 2x
 
 		FOnePoleSmoother DriveSmoother;
 		FOnePoleSmoother OutputSmoother;
+		FOversampler2x Oversampler;
+		// Per-host-sample Drive / OutGain captures used by the 2x path so
+		// each upsampled-pair shares the smoother values from one host tick.
+		float DriveSeq[BlockSize] = {};
+		float OutGainSeq[BlockSize] = {};
 	};
 }

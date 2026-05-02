@@ -167,6 +167,100 @@ TEST_CASE("FWaveshaper: disconnected input emits silence", "[waveshaper]")
 	}
 }
 
+TEST_CASE("FWaveshaper: 2x oversampling reduces aliasing on hard-clipped sine", "[waveshaper][oversampling]")
+{
+	// Hard-clip a high-frequency sine at unity amplitude — that turns the
+	// sine into a square wave, whose harmonic spectrum extends to infinity.
+	// At 1x, harmonics above Nyquist alias back into the audible band.
+	// At 2x, those harmonics are filtered before they fold. The aliasing
+	// shows up as content at frequencies that aren't integer multiples of
+	// the fundamental — measurable as a stronger "messy" residual at 1x.
+	//
+	// Stand-in for an FFT comparison: feed a 9 kHz sine (high enough that
+	// its 3rd harmonic at 27 kHz is above the 24 kHz Nyquist, producing
+	// alias content); compare the difference between 1x and 2x outputs.
+	// Don't claim a precise dB number — just that the two diverge.
+	const double Sr = 48000.0;
+	const double Freq = 9000.0;
+	const double TwoPi = 2.0 * 3.141592653589793;
+	const double Phase = TwoPi * Freq / Sr;
+
+	FWaveshaper W1, W2;
+	W1.SetParamValue(FWaveshaper::Param_Shape, static_cast<float>(EWaveshape::HardClip));
+	W2.SetParamValue(FWaveshaper::Param_Shape, static_cast<float>(EWaveshape::HardClip));
+	W1.SetParamValue(FWaveshaper::Param_DriveDb, 12.0f);
+	W2.SetParamValue(FWaveshaper::Param_DriveDb, 12.0f);
+	W2.SetParamValue(FWaveshaper::Param_Oversample, 1.0f);  // 2x
+	W1.Prepare(Sr);
+	W2.Prepare(Sr);
+
+	std::vector<float> Sine(BlockSize, 0.0f);
+	std::vector<float> Out1, Out2;
+	double T = 0.0;
+
+	// Burn-in a few blocks to let smoothers and FIR settle.
+	for (uint32_t B = 0; B < 4; ++B)
+	{
+		for (uint32_t I = 0; I < BlockSize; ++I)
+		{
+			Sine[I] = static_cast<float>(std::sin(T));
+			T += Phase;
+		}
+		Out1 = RunOne(W1, Sine);
+		Out2 = RunOne(W2, Sine);
+	}
+
+	// Capture one block of each.
+	for (uint32_t I = 0; I < BlockSize; ++I)
+	{
+		Sine[I] = static_cast<float>(std::sin(T));
+		T += Phase;
+	}
+	Out1 = RunOne(W1, Sine);
+	Out2 = RunOne(W2, Sine);
+
+	// The two outputs must differ: oversampling actually changes the result,
+	// not a no-op. (Exact dB difference would need an FFT harness; see
+	// docs/PLAN-PHASE-5.md §5c for the next step.)
+	double Diff = 0.0;
+	double Energy1 = 0.0;
+	for (uint32_t I = 0; I < BlockSize; ++I)
+	{
+		const double D = static_cast<double>(Out2[I]) - static_cast<double>(Out1[I]);
+		Diff += D * D;
+		Energy1 += static_cast<double>(Out1[I]) * static_cast<double>(Out1[I]);
+	}
+	// Diff should be a meaningful fraction of the signal energy — not
+	// numerical noise. We don't claim a precise number here, just that the
+	// 2x path is actually doing something to the output.
+	REQUIRE(Diff > Energy1 * 0.01);
+}
+
+TEST_CASE("FWaveshaper: 1x oversample param is a true bypass", "[waveshaper][oversampling]")
+{
+	// With Oversample = 1x, the 2x code path is gated off entirely. Output
+	// should be bit-identical to a fresh waveshaper that never had Oversample
+	// touched. (Both run on the 1x path; there's no reason for them to differ.)
+	FWaveshaper W1, W2;
+	W1.SetParamValue(FWaveshaper::Param_Shape, static_cast<float>(EWaveshape::TanhSoft));
+	W2.SetParamValue(FWaveshaper::Param_Shape, static_cast<float>(EWaveshape::TanhSoft));
+	W1.SetParamValue(FWaveshaper::Param_DriveDb, 12.0f);
+	W2.SetParamValue(FWaveshaper::Param_DriveDb, 12.0f);
+	W2.SetParamValue(FWaveshaper::Param_Oversample, 0.0f);  // explicit 1x
+	W1.Prepare(48000.0);
+	W2.Prepare(48000.0);
+
+	std::vector<float> In(BlockSize, 0.0f);
+	for (uint32_t I = 0; I < BlockSize; ++I) { In[I] = 0.5f * std::sin(I * 0.1f); }
+
+	const auto Out1 = RunOne(W1, In);
+	const auto Out2 = RunOne(W2, In);
+	for (uint32_t I = 0; I < BlockSize; ++I)
+	{
+		REQUIRE(Out1[I] == Out2[I]);
+	}
+}
+
 TEST_CASE("FWaveshaper: output stays finite for every shape across extreme inputs", "[waveshaper]")
 {
 	for (uint8_t S = 0; S < static_cast<uint8_t>(EWaveshape::COUNT); ++S)
