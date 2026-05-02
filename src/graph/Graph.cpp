@@ -125,6 +125,23 @@ namespace NodeSynth
 		Links.erase(std::remove_if(Links.begin(), Links.end(),
 			[Id](const FLink& L) { return L.FromNode == Id || L.ToNode == Id; }),
 			Links.end());
+
+		// Capture and sweep MIDI mappings whose target was this node, so the
+		// RemoveNode undo entry can restore them. Same shape as IncidentLinks.
+		if (bRecord)
+		{
+			for (const FMidiMapping& M : MidiMappings)
+			{
+				if (M.NodeId == Id)
+				{
+					Cmd.IncidentMappings.push_back(M);
+				}
+			}
+		}
+		MidiMappings.erase(std::remove_if(MidiMappings.begin(), MidiMappings.end(),
+			[Id](const FMidiMapping& M) { return M.NodeId == Id; }),
+			MidiMappings.end());
+
 		Nodes.erase(Id);
 
 		if (bRecord)
@@ -164,6 +181,77 @@ namespace NodeSynth
 			History->Push(std::move(Cmd));
 		}
 		return true;
+	}
+
+	void FGraphModel::AddMidiMapping(const FMidiMapping& Mapping)
+	{
+		// Replace any existing mapping on the same (Channel, Cc) pair. Wrap
+		// removal + addition in a composite history entry so undo restores
+		// both in one step.
+		const bool bRecord = IsRecordingHistory();
+		const bool bGroup = bRecord;
+		if (bGroup) { History->BeginComposite(); }
+
+		auto It = std::find_if(MidiMappings.begin(), MidiMappings.end(),
+			[&](const FMidiMapping& M) { return M.Channel == Mapping.Channel && M.Cc == Mapping.Cc; });
+		if (It != MidiMappings.end())
+		{
+			if (bRecord)
+			{
+				FEditCommand Cmd;
+				Cmd.Type = EEditCommand::RemoveMidiMapping;
+				Cmd.MidiChannel = It->Channel;
+				Cmd.MidiCc = It->Cc;
+				Cmd.NodeId = It->NodeId;
+				Cmd.ParamIndex = It->ParamIndex;
+				History->Push(std::move(Cmd));
+			}
+			MidiMappings.erase(It);
+		}
+
+		MidiMappings.push_back(Mapping);
+		if (bRecord)
+		{
+			FEditCommand Cmd;
+			Cmd.Type = EEditCommand::AddMidiMapping;
+			Cmd.MidiChannel = Mapping.Channel;
+			Cmd.MidiCc = Mapping.Cc;
+			Cmd.NodeId = Mapping.NodeId;
+			Cmd.ParamIndex = Mapping.ParamIndex;
+			History->Push(std::move(Cmd));
+		}
+
+		if (bGroup) { History->EndComposite(); }
+	}
+
+	void FGraphModel::RemoveMidiMapping(uint8_t Channel, uint8_t Cc)
+	{
+		auto It = std::find_if(MidiMappings.begin(), MidiMappings.end(),
+			[&](const FMidiMapping& M) { return M.Channel == Channel && M.Cc == Cc; });
+		if (It == MidiMappings.end())
+		{
+			return;
+		}
+		if (IsRecordingHistory())
+		{
+			FEditCommand Cmd;
+			Cmd.Type = EEditCommand::RemoveMidiMapping;
+			Cmd.MidiChannel = It->Channel;
+			Cmd.MidiCc = It->Cc;
+			Cmd.NodeId = It->NodeId;
+			Cmd.ParamIndex = It->ParamIndex;
+			History->Push(std::move(Cmd));
+		}
+		MidiMappings.erase(It);
+	}
+
+	const FMidiMapping* FGraphModel::FindMidiMapping(FNodeId NodeId, uint32_t ParamIndex) const
+	{
+		for (const FMidiMapping& M : MidiMappings)
+		{
+			if (M.NodeId == NodeId && M.ParamIndex == ParamIndex) { return &M; }
+		}
+		return nullptr;
 	}
 
 	std::string FGraphModel::ValidateLinkPolyphony(FNodeId FromNode, uint32_t FromPort, FNodeId ToNode) const

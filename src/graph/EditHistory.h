@@ -18,6 +18,8 @@ namespace NodeSynth
 		SetParam,          // Forward: param changed (NewValue). Undo: restore (OldValue).
 		SetNodePerVoice,   // Forward: per-voice flag toggled. Undo: restore prior flag.
 		SetNodePosition,   // Forward: drag landed at NewX/Y. Undo: restore OldX/Y.
+		AddMidiMapping,    // Forward: mapping added. Undo: remove it.
+		RemoveMidiMapping, // Forward: mapping removed. Undo: re-add it.
 	};
 
 	// One undoable edit. Carries enough state in its variant fields to apply
@@ -48,6 +50,9 @@ namespace NodeSynth
 			uint32_t ToPort;
 		};
 		std::vector<FLinkRecord> IncidentLinks;
+		// MIDI mappings whose target was this node — restored alongside
+		// IncidentLinks when RemoveNode is undone.
+		std::vector<FMidiMapping> IncidentMappings;
 
 		// AddLink / RemoveLink payload (also used by IncidentLinks restore).
 		FNodeId FromNode = 0;
@@ -67,6 +72,10 @@ namespace NodeSynth
 		// SetNodePosition payload.
 		float OldX = 0.0f, OldY = 0.0f;
 		float NewX = 0.0f, NewY = 0.0f;
+
+		// AddMidiMapping / RemoveMidiMapping payload.
+		uint8_t MidiChannel = 0;  // 0 = "any channel"; 1..16 = specific
+		uint8_t MidiCc = 0;
 	};
 
 	// Linear undo + redo stack with a fixed cap. New user edits drop the redo

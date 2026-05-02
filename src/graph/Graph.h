@@ -33,6 +33,18 @@ namespace NodeSynth
 		uint32_t ToPort = 0;
 	};
 
+	// One MIDI controller binding. CC events arriving on (Channel, Cc) drive
+	// the named (NodeId, ParamIndex) target, scaled to the param's declared
+	// range. Channel=0 means "any channel"; 1..16 are specific MIDI channels.
+	// Mappings save with the patch (per-patch v1; global mappings deferred).
+	struct FMidiMapping
+	{
+		uint8_t Channel = 0;     // 0 = any, 1..16 = specific
+		uint8_t Cc = 0;          // 0..127
+		FNodeId NodeId = 0;
+		uint32_t ParamIndex = 0;
+	};
+
 	// Diagnostics from the last Compile. UI surfaces this to flag the offending
 	// connection visually instead of silently producing an empty audio graph.
 	struct FCompileError
@@ -162,9 +174,20 @@ namespace NodeSynth
 		// the user drop a link that will silently break the audio graph.
 		std::string ValidateLinkPolyphony(FNodeId FromNode, uint32_t FromPort, FNodeId ToNode) const;
 
+		// MIDI controller mappings. Adding/removing is undoable; on
+		// AddMidiMapping, any existing mapping with the same (Channel, Cc)
+		// is replaced (the prior is removed via the same history entry as
+		// part of a composite group). Mappings whose target node is removed
+		// also get swept by RemoveNode.
+		const std::vector<FMidiMapping>& GetMidiMappings() const { return MidiMappings; }
+		void AddMidiMapping(const FMidiMapping& Mapping);
+		void RemoveMidiMapping(uint8_t Channel, uint8_t Cc);
+		const FMidiMapping* FindMidiMapping(FNodeId NodeId, uint32_t ParamIndex) const;
+
 	private:
 		std::unordered_map<FNodeId, FNodeRecord> Nodes;
 		std::vector<FLink> Links;
+		std::vector<FMidiMapping> MidiMappings;
 		FNodeId NextNodeId = 1;
 		FLinkId NextLinkId = 1;
 		FEditHistory* History = nullptr;

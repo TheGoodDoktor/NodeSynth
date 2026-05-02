@@ -10,13 +10,15 @@ namespace NodeSynth
 		{
 			switch (Type)
 			{
-				case EEditCommand::AddNode:         return "Add";
-				case EEditCommand::RemoveNode:      return "Remove";
-				case EEditCommand::AddLink:         return "Connect";
-				case EEditCommand::RemoveLink:      return "Disconnect";
-				case EEditCommand::SetParam:        return "Set param";
-				case EEditCommand::SetNodePerVoice: return "Toggle per-voice";
-				case EEditCommand::SetNodePosition: return "Move node";
+				case EEditCommand::AddNode:           return "Add";
+				case EEditCommand::RemoveNode:        return "Remove";
+				case EEditCommand::AddLink:           return "Connect";
+				case EEditCommand::RemoveLink:        return "Disconnect";
+				case EEditCommand::SetParam:          return "Set param";
+				case EEditCommand::SetNodePerVoice:   return "Toggle per-voice";
+				case EEditCommand::SetNodePosition:   return "Move node";
+				case EEditCommand::AddMidiMapping:    return "MIDI map";
+				case EEditCommand::RemoveMidiMapping: return "MIDI unmap";
 			}
 			return "?";
 		}
@@ -197,6 +199,10 @@ namespace NodeSynth
 					{
 						Model.AddLinkWithId(L.Id, L.FromNode, L.FromPort, L.ToNode, L.ToPort);
 					}
+					for (const FMidiMapping& M : Cmd.IncidentMappings)
+					{
+						Model.AddMidiMapping(M);
+					}
 				}
 				break;
 			}
@@ -243,6 +249,40 @@ namespace NodeSynth
 				{
 					Rec->PositionX = bForward ? Cmd.NewX : Cmd.OldX;
 					Rec->PositionY = bForward ? Cmd.NewY : Cmd.OldY;
+				}
+				break;
+			}
+			case EEditCommand::AddMidiMapping:
+			{
+				if (bForward)
+				{
+					FMidiMapping M;
+					M.Channel = Cmd.MidiChannel;
+					M.Cc = Cmd.MidiCc;
+					M.NodeId = Cmd.NodeId;
+					M.ParamIndex = Cmd.ParamIndex;
+					Model.AddMidiMapping(M);
+				}
+				else
+				{
+					Model.RemoveMidiMapping(Cmd.MidiChannel, Cmd.MidiCc);
+				}
+				break;
+			}
+			case EEditCommand::RemoveMidiMapping:
+			{
+				if (bForward)
+				{
+					Model.RemoveMidiMapping(Cmd.MidiChannel, Cmd.MidiCc);
+				}
+				else
+				{
+					FMidiMapping M;
+					M.Channel = Cmd.MidiChannel;
+					M.Cc = Cmd.MidiCc;
+					M.NodeId = Cmd.NodeId;
+					M.ParamIndex = Cmd.ParamIndex;
+					Model.AddMidiMapping(M);
 				}
 				break;
 			}
