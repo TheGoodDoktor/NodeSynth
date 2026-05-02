@@ -85,19 +85,18 @@ namespace NodeSynth
 
 	void DrawMeterNodeBody(FMeter& Meter)
 	{
-		// Compact rendition for the node body: two short horizontal bars
-		// (Peak above, RMS below) with a small dB readout next to each.
-		// Width matches the node's body width (~120 px).
+		// Compact in-node bars only — the dB numerics live in the property
+		// panel where the wider layout has room for them.
 		const float PeakLin = Meter.GetPeak();
 		const float RmsLin = Meter.GetRms();
 		const float PeakDb = LinearToDbFs(PeakLin);
 		const float RmsDb = LinearToDbFs(RmsLin);
 
-		constexpr float BarWidth = 80.0f;
+		constexpr float BarWidth = 110.0f;
 		constexpr float BarHeight = 6.0f;
 		ImDrawList* Draw = ImGui::GetWindowDrawList();
 
-		auto DrawRow = [&](const char* Label, float Db, float Fraction, ImU32 BarColour)
+		auto DrawRow = [&](const char* Label, float Fraction, ImU32 BarColour)
 		{
 			ImGui::TextDisabled("%s", Label);
 			ImGui::SameLine();
@@ -106,11 +105,9 @@ namespace NodeSynth
 			DrawBar(Draw, Origin,
 				ImVec2(Origin.x + BarWidth, Origin.y + BarHeight),
 				Fraction, BarColour);
-			ImGui::SameLine();
-			ImGui::Text("%5.1f", Db);
 		};
 
-		DrawRow("P", PeakDb, DbToBarFraction(PeakDb), IM_COL32(255, 130, 130, 220));
-		DrawRow("R", RmsDb,  DbToBarFraction(RmsDb),  IM_COL32(120, 220, 130, 220));
+		DrawRow("P", DbToBarFraction(PeakDb), IM_COL32(255, 130, 130, 220));
+		DrawRow("R", DbToBarFraction(RmsDb),  IM_COL32(120, 220, 130, 220));
 	}
 }
