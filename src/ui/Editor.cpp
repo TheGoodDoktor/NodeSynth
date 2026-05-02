@@ -285,7 +285,6 @@ namespace NodeSynth
 				TitleW,
 				MaxLeftWidth + ColumnGap + MaxRightWidth
 			});
-			const float OutputColumnX = NodeContentWidth - MaxRightWidth;
 
 			for (size_t Row = 0; Row < Rows; ++Row)
 			{
@@ -306,10 +305,15 @@ namespace NodeSynth
 
 				if (Row < OutPorts.size())
 				{
-					// Right-align: jump the cursor to (row_start + OutputColumnX)
-					// so every output pin lands at the same X, flush to the
-					// node's right edge.
-					ImGui::SameLine(RowStartX + OutputColumnX);
+					// Right-align each pin individually so the pin icons line
+					// up vertically on the node's right edge. Short labels
+					// would otherwise leave a gap between text and the
+					// (widest-pin-derived) column position.
+					const float ThisPinW = ImGui::CalcTextSize(OutPorts[Row].Name.c_str()).x
+						+ IconLabelGap + PinIconSize;
+					const float ThisPinX = NodeContentWidth - ThisPinW;
+					ImGui::SameLine();
+					ImGui::SetCursorPosX(RowStartX + ThisPinX);
 					const uint64_t Pid = EncodePinId(Id, static_cast<uint32_t>(Row), true);
 					const bool bConn = ConnectedPins.count(Pid) > 0;
 					ed::BeginPin(ed::PinId(Pid), ed::PinKind::Output);
