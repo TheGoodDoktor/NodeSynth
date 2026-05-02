@@ -11,6 +11,7 @@ namespace NodeSynth
 {
 	class FEditHistory;
 	class FVoiceAllocator;
+	class FMidiInput;
 
 	struct FNodeRecord
 	{
@@ -94,19 +95,22 @@ namespace NodeSynth
 		// broadcast to every entry. Populated alongside NodeById in Compile.
 		std::vector<FVoiceAllocator*> Allocators;
 
+		// MIDI input nodes ticked unconditionally each block — including
+		// instances that aren't reachable from the audio sink. FMidiInput
+		// dispatches notes directly to Allocators in its Process; if it
+		// only ran when reachable, a typical patch (MIDI device drives the
+		// voice allocator with no audio-chain wire from MIDI Input itself)
+		// would never receive events. Held as raw pointers; lifetime backed
+		// by the model's shared_ptr that's also referenced in NodeById.
+		std::vector<FMidiInput*> MidiInputs;
+
 		// Drains all pending commands from the ring and dispatches them. RT-safe:
 		// the ring is lock-free and SetParamValue stores into atomics. Commands
 		// targeting nodes not in this snapshot are silently dropped (the
 		// equivalent UI-thread atomic write keeps the model consistent).
 		void DrainCommands(FAudioCommandRing& Ring);
 
-		void Process(const FProcessContext& Ctx)
-		{
-			for (auto& Node : OrderedNodes)
-			{
-				Node->Process(Ctx);
-			}
-		}
+		void Process(const FProcessContext& Ctx);
 	};
 
 	// UI-thread-side editable graph. Every structural edit (AddNode, AddLink, ...)
