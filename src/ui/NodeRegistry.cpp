@@ -5,6 +5,7 @@
 #include "dsp/Add.h"
 #include "dsp/Adsr.h"
 #include "dsp/AutoPan.h"
+#include "dsp/Bitcrusher.h"
 #include "dsp/Chorus.h"
 #include "dsp/Clock.h"
 #include "dsp/Compressor.h"
@@ -12,10 +13,12 @@
 #include "dsp/DcBlocker.h"
 #include "dsp/Delay.h"
 #include "dsp/Equalizer.h"
+#include "dsp/Exciter.h"
 #include "dsp/Flanger.h"
 #include "dsp/Gain.h"
 #include "dsp/Gate.h"
 #include "dsp/GateButton.h"
+#include "dsp/HaasWidener.h"
 #include "dsp/Limiter.h"
 #include "dsp/Lfo.h"
 #include "dsp/Meter.h"
@@ -25,10 +28,12 @@
 #include "dsp/Output.h"
 #include "dsp/Phaser.h"
 #include "dsp/Reverb.h"
+#include "dsp/RingMod.h"
 #include "dsp/SampleHold.h"
 #include "dsp/Scale.h"
 #include "dsp/Scope.h"
 #include "dsp/Sequencer.h"
+#include "dsp/StereoWidener.h"
 #include "dsp/SidPlayer.h"
 #include "dsp/Svf.h"
 #include "dsp/Tremolo.h"
@@ -225,6 +230,38 @@ namespace NodeSynth
 				"Mono input becomes panned-stereo output, sweeping between\n"
 				"full-L and full-R. L² + R² ≈ Input² always.",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FAutoPan>(); },
+			},
+			{
+				"Bitcrusher", "Bitcrusher",
+				"Sample-rate reduction (sample-and-hold) + bit-depth quantize.\n"
+				"Aliasing IS the effect. Rate=1, Bits=16 → near-passthrough.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FBitcrusher>(); },
+			},
+			{
+				"RingMod", "Ring Modulator",
+				"Input × internal sine/triangle/square carrier. Produces\n"
+				"sum + difference frequencies for that classic metallic /\n"
+				"bell timbre.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FRingMod>(); },
+			},
+			{
+				"StereoWidener", "Stereo Widener",
+				"Mid-side processing — single Width param scales the side\n"
+				"content. 0 = mono, 1 = passthrough, 2 = exaggerated.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FStereoWidener>(); },
+			},
+			{
+				"HaasWidener", "Haas Widener",
+				"Fixed short delay (5–25 ms) on one channel for apparent\n"
+				"stereo width via the precedence effect. Comb-filters when\n"
+				"summed to mono — pad / lead use only.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FHaasWidener>(); },
+			},
+			{
+				"Exciter", "Exciter",
+				"Highpass → tanh saturation → mix back with dry. Adds\n"
+				"high-frequency harmonics for 'presence' / 'air'.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FExciter>(); },
 			},
 			{
 				"Waveshaper", "Waveshaper",
