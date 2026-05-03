@@ -617,6 +617,9 @@ namespace NodeSynth
 		if (std::strcmp(TypeName, "Chorus") == 0)         { return ColEffect; }
 		if (std::strcmp(TypeName, "Flanger") == 0)        { return ColEffect; }
 		if (std::strcmp(TypeName, "Phaser") == 0)         { return ColEffect; }
+		if (std::strcmp(TypeName, "Compressor") == 0)     { return ColAmp; }
+		if (std::strcmp(TypeName, "Limiter") == 0)        { return ColAmp; }
+		if (std::strcmp(TypeName, "NoiseGate") == 0)      { return ColAmp; }
 		if (std::strcmp(TypeName, "Clock") == 0)          { return ColControl; }
 		if (std::strcmp(TypeName, "Sequencer") == 0)      { return ColControl; }
 		if (std::strcmp(TypeName, "Scope") == 0)          { return ColAmp; }

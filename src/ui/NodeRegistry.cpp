@@ -6,11 +6,14 @@
 #include "dsp/Adsr.h"
 #include "dsp/Chorus.h"
 #include "dsp/Clock.h"
+#include "dsp/Compressor.h"
 #include "dsp/Constant.h"
 #include "dsp/Delay.h"
 #include "dsp/Flanger.h"
 #include "dsp/Gain.h"
+#include "dsp/Gate.h"
 #include "dsp/GateButton.h"
+#include "dsp/Limiter.h"
 #include "dsp/Lfo.h"
 #include "dsp/Meter.h"
 #include "dsp/Mixer.h"
@@ -168,6 +171,28 @@ namespace NodeSynth
 				"exponential LFO sweep. Different from chorus / flanger:\n"
 				"modulates filter phase, not delay time.",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FPhaser>(); },
+			},
+			{
+				"Compressor", "Compressor",
+				"Stereo peak compressor with linked detection: max(|L|, |R|)\n"
+				"feeds the envelope follower; gain reduction applies identically\n"
+				"to both channels so the stereo image stays intact.\n"
+				"Hard-knee, no lookahead.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FCompressor>(); },
+			},
+			{
+				"Limiter", "Limiter",
+				"Stereo brickwall-style limiter — compressor with infinite\n"
+				"ratio and hard knee. Ceiling caps output amplitude. No\n"
+				"lookahead in v1; very fast transients can briefly slip past.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FLimiter>(); },
+			},
+			{
+				"NoiseGate", "Noise Gate",
+				"Stereo downward expander / noise gate. Below threshold the\n"
+				"signal is reduced by (threshold - input) × (1 - 1/Ratio).\n"
+				"Hold time prevents chatter on signals around the threshold.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FGate>(); },
 			},
 			{
 				"Waveshaper", "Waveshaper",
