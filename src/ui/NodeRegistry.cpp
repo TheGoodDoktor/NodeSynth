@@ -4,6 +4,7 @@
 
 #include "dsp/Add.h"
 #include "dsp/Adsr.h"
+#include "dsp/AutoPan.h"
 #include "dsp/Chorus.h"
 #include "dsp/Clock.h"
 #include "dsp/Compressor.h"
@@ -30,6 +31,7 @@
 #include "dsp/Sequencer.h"
 #include "dsp/SidPlayer.h"
 #include "dsp/Svf.h"
+#include "dsp/Tremolo.h"
 #include "dsp/Vca.h"
 #include "dsp/VoiceAllocator.h"
 #include "dsp/Waveshaper.h"
@@ -209,6 +211,20 @@ namespace NodeSynth
 				"waveshapers and other nonlinearities can introduce. No\n"
 				"params — DC is a problem with one solution.",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FDcBlocker>(); },
+			},
+			{
+				"Tremolo", "Tremolo",
+				"LFO modulating amplitude. Mono mode ties L/R together;\n"
+				"Quad mode runs them 180° apart for ping-pong amplitude.\n"
+				"Sine / Triangle / Square / Saw shapes.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FTremolo>(); },
+			},
+			{
+				"AutoPan", "Auto-Pan",
+				"LFO modulating L/R balance with constant-power pan curve.\n"
+				"Mono input becomes panned-stereo output, sweeping between\n"
+				"full-L and full-R. L² + R² ≈ Input² always.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FAutoPan>(); },
 			},
 			{
 				"Waveshaper", "Waveshaper",

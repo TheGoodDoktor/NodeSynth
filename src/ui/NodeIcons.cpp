@@ -622,6 +622,8 @@ namespace NodeSynth
 		if (std::strcmp(TypeName, "NoiseGate") == 0)      { return ColAmp; }
 		if (std::strcmp(TypeName, "Equalizer") == 0)      { return ColFilter; }
 		if (std::strcmp(TypeName, "DcBlocker") == 0)      { return ColFilter; }
+		if (std::strcmp(TypeName, "Tremolo") == 0)        { return ColEffect; }
+		if (std::strcmp(TypeName, "AutoPan") == 0)        { return ColEffect; }
 		if (std::strcmp(TypeName, "Clock") == 0)          { return ColControl; }
 		if (std::strcmp(TypeName, "Sequencer") == 0)      { return ColControl; }
 		if (std::strcmp(TypeName, "Scope") == 0)          { return ColAmp; }
