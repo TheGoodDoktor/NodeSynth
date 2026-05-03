@@ -5,11 +5,14 @@
 #include "graph/AudioCommand.h"
 #include "graph/EditHistory.h"
 #include "graph/Graph.h"
+#include "ui/KeyboardPanel.h"
 
 namespace ax::NodeEditor { struct EditorContext; }
 
 namespace NodeSynth
 {
+	class FMidiDeviceManager;
+
 	class FGraphEditorPanel
 	{
 	public:
@@ -31,6 +34,11 @@ namespace NodeSynth
 		// Edit history for undo/redo of param edits (slider drags coalesce
 		// into one entry via IsItemActivated / IsItemDeactivatedAfterEdit).
 		void SetEditHistory(FEditHistory* H) { History = H; }
+
+		// Project-level MIDI device. Replaces the FMidiInput-node-based source
+		// the editor used to drain CC events from. The editor drains the
+		// manager's CC ring once per frame for MIDI Learn / mapping dispatch.
+		void SetMidiManager(FMidiDeviceManager* Mgr) { MidiManager = Mgr; }
 
 		// Renders the node editor. Returns true if the graph topology changed
 		// this frame (caller should recompile & publish to the audio thread).
@@ -93,6 +101,13 @@ namespace NodeSynth
 		// active we capture its value-on-press; when it deactivates after edit
 		// we push a SetParam edit-history entry with old + new values.
 		FEditHistory* History = nullptr;
+
+		// Global MIDI device manager. CC events for MIDI Learn come from here.
+		FMidiDeviceManager* MidiManager = nullptr;
+
+		// On-screen keyboard panel. Owns its own state (held notes, octave,
+		// velocity); pushes Note On/Off through the command sink.
+		FKeyboardPanel Keyboard;
 		FNodeId   ActiveParamNode = 0;
 		uint32_t  ActiveParamIndex = 0;
 		float     ActiveParamOldValue = 0.0f;

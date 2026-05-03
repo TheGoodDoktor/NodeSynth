@@ -2,12 +2,10 @@
 #include "dsp/Constant.h"
 #include "dsp/Gain.h"
 #include "dsp/Lfo.h"
-#include "dsp/MidiInput.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
 #include "dsp/Scale.h"
 #include "dsp/Svf.h"
-#include "dsp/VirtualKeyboard.h"
 #include "ui/NodeRegistry.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -17,19 +15,15 @@ using NodeSynth::FAdsr;
 using NodeSynth::FConstant;
 using NodeSynth::FGain;
 using NodeSynth::FLfo;
-using NodeSynth::FMidiInput;
 using NodeSynth::FOscillator;
 using NodeSynth::FOutput;
 using NodeSynth::FScale;
 using NodeSynth::FSvf;
-using NodeSynth::FVirtualKeyboard;
 using NodeSynth::INode;
 
 TEST_CASE("Clone: non-cloneable nodes return nullptr", "[clone]")
 {
 	REQUIRE(FOutput().Clone() == nullptr);
-	REQUIRE(FVirtualKeyboard().Clone() == nullptr);
-	REQUIRE(FMidiInput().Clone() == nullptr);
 }
 
 TEST_CASE("Clone: oscillator preserves Shape, Frequency, Amplitude", "[clone]")

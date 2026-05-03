@@ -25,12 +25,12 @@
 #include "dsp/Node.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
-#include "dsp/VirtualKeyboard.h"
 #include "dsp/VoiceAllocator.h"
 #include "graph/EditHistory.h"
 #include "graph/Graph.h"
 #include "io/PatchSerializer.h"
 #include "io/PresetBrowser.h"
+#include "midi/MidiDeviceManager.h"
 #include "ui/Editor.h"
 #include "ui/Palette.h"
 
@@ -43,6 +43,7 @@ namespace
 		std::atomic<std::shared_ptr<FAudioGraph>> Graph{ nullptr };
 		std::atomic<double> SampleRate{ 48000.0 };
 		FAudioCommandRing Commands;
+		FMidiDeviceManager MidiManager;
 	};
 
 	void AudioCallback(ma_device* Device, void* Output, const void* /*Input*/, ma_uint32 FrameCount)
@@ -74,6 +75,11 @@ namespace
 			if (Graph && Graph->OutputNode)
 			{
 				Graph->DrainCommands(State->Commands);
+				// Tick the global MIDI subsystem before the graph so any notes
+				// captured this block reach the snapshot's voice allocators
+				// before they Process. The manager dispatches directly via the
+				// allocator pointers handed to it on the last Compile.
+				State->MidiManager.Process(Ctx);
 				Graph->Process(Ctx);
 				OutputBufL = Graph->OutputNode->GetInputBuffer(0, 0);
 				OutputBufR = Graph->OutputNode->GetInputBuffer(0, 1);
@@ -104,7 +110,6 @@ namespace
 
 	void SeedDefaultPatch(FGraphModel& Model)
 	{
-		auto Kbd = std::make_shared<FVirtualKeyboard>();
 		auto Alloc = std::make_shared<FVoiceAllocator>();
 		auto Adsr = std::make_shared<FAdsr>();
 		auto Osc = std::make_shared<FOscillator>();
@@ -118,7 +123,6 @@ namespace
 		// per-voice mixer — this Gain node is exactly that.
 		GainNode->SetParamValue(FGain::Param_Gain, 0.15f);
 
-		Model.AddNode(Kbd, 60.0f, 60.0f);
 		const FNodeId AllocId = Model.AddNode(Alloc, 60.0f, 240.0f);
 		const FNodeId AdsrId = Model.AddNode(Adsr, 340.0f, 60.0f);
 		const FNodeId OscId = Model.AddNode(Osc, 340.0f, 240.0f);
@@ -323,8 +327,28 @@ int main()
 	std::filesystem::path PendingPresetLoad;
 
 	FAudioState AudioState;
-	AudioState.Graph.store(Model.Compile(48000.0));
+
+	// Helper that publishes a freshly compiled snapshot to the audio thread,
+	// also handing the snapshot's voice allocator list to the global MIDI
+	// manager. SetVoiceAllocators runs BEFORE the atomic store so the
+	// manager and the audio thread agree on the live allocator set as soon
+	// as the audio thread sees the new graph.
+	auto PublishSnapshot = [&AudioState](std::shared_ptr<FAudioGraph> NewSnapshot)
+	{
+		if (NewSnapshot)
+		{
+			AudioState.MidiManager.SetVoiceAllocators(NewSnapshot->Allocators);
+		}
+		else
+		{
+			AudioState.MidiManager.SetVoiceAllocators({});
+		}
+		AudioState.Graph.store(std::move(NewSnapshot));
+	};
+
+	PublishSnapshot(Model.Compile(48000.0));
 	EditorPanel.SetCommandRing(&AudioState.Commands);
+	EditorPanel.SetMidiManager(&AudioState.MidiManager);
 
 	// Last load/save warning surfaced to the UI (e.g. sample-rate mismatch).
 	// Cleared on successful action; rendered as a non-blocking notice.
@@ -363,7 +387,7 @@ int main()
 		auto NewSnapshot = Model.Compile(AudioState.SampleRate.load());
 		if (!Model.GetLastCompileError().bHasError)
 		{
-			AudioState.Graph.store(std::move(NewSnapshot));
+			PublishSnapshot(std::move(NewSnapshot));
 		}
 		for (const auto& Cmd : Loaded->InitialParams)
 		{
@@ -411,7 +435,7 @@ int main()
 	}
 
 	AudioState.SampleRate.store(static_cast<double>(Device.sampleRate));
-	AudioState.Graph.store(Model.Compile(static_cast<double>(Device.sampleRate)));
+	PublishSnapshot(Model.Compile(static_cast<double>(Device.sampleRate)));
 
 	if (ma_device_start(&Device) != MA_SUCCESS)
 	{
@@ -677,7 +701,7 @@ int main()
 			Model.SetRecordHistory(true);
 			EditorPanel.OnModelReplaced();
 			CurrentPatchPath.clear();
-			AudioState.Graph.store(Model.Compile(AudioState.SampleRate.load()));
+			PublishSnapshot(Model.Compile(AudioState.SampleRate.load()));
 		}
 		if (bRequestSave && !CurrentPatchPath.empty())
 		{
@@ -689,7 +713,7 @@ int main()
 			auto NewSnapshot = Model.Compile(AudioState.SampleRate.load());
 			if (!Model.GetLastCompileError().bHasError)
 			{
-				AudioState.Graph.store(std::move(NewSnapshot));
+				PublishSnapshot(std::move(NewSnapshot));
 			}
 		}
 		if (bRequestRedo && EditHistory.Redo(Model))
@@ -698,7 +722,7 @@ int main()
 			auto NewSnapshot = Model.Compile(AudioState.SampleRate.load());
 			if (!Model.GetLastCompileError().bHasError)
 			{
-				AudioState.Graph.store(std::move(NewSnapshot));
+				PublishSnapshot(std::move(NewSnapshot));
 			}
 		}
 
@@ -729,7 +753,7 @@ int main()
 				auto NewSnapshot = Model.Compile(AudioState.SampleRate.load());
 				if (!Model.GetLastCompileError().bHasError)
 				{
-					AudioState.Graph.store(std::move(NewSnapshot));
+					PublishSnapshot(std::move(NewSnapshot));
 				}
 			}
 		}
@@ -794,7 +818,7 @@ int main()
 			auto NewSnapshot = Model.Compile(AudioState.SampleRate.load());
 			if (!Model.GetLastCompileError().bHasError)
 			{
-				AudioState.Graph.store(std::move(NewSnapshot));
+				PublishSnapshot(std::move(NewSnapshot));
 			}
 			// On compile failure, keep the previous good snapshot live so the
 			// audio doesn't go silent. The error is surfaced in the UI.
@@ -816,7 +840,7 @@ int main()
 
 	// Drop the current graph before ImGui shutdown so any node destructors run
 	// on the UI thread (and well before the audio thread is gone).
-	AudioState.Graph.store(nullptr);
+	PublishSnapshot(nullptr);
 
 	if (bNfdReady)
 	{

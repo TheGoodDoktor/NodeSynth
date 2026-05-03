@@ -13,7 +13,6 @@
 #include "dsp/GateButton.h"
 #include "dsp/Lfo.h"
 #include "dsp/Meter.h"
-#include "dsp/MidiInput.h"
 #include "dsp/Mixer.h"
 #include "dsp/Multiply.h"
 #include "dsp/Oscillator.h"
@@ -26,7 +25,6 @@
 #include "dsp/SidPlayer.h"
 #include "dsp/Svf.h"
 #include "dsp/Vca.h"
-#include "dsp/VirtualKeyboard.h"
 #include "dsp/VoiceAllocator.h"
 #include "dsp/Waveshaper.h"
 
@@ -81,20 +79,6 @@ namespace NodeSynth
 				"Manual gate toggle. Held = 1, released = 0.\n"
 				"Useful for testing envelopes / VCAs without a MIDI source.",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FGateButton>(); },
-			},
-			{
-				"MIDI", "MIDI Input",
-				"Hardware MIDI input via RtMidi.\n"
-				"Outputs: Gate, Frequency (Hz), Velocity (0..1).\n"
-				"Monophonic, last-note-wins with legato.",
-				[]() -> std::shared_ptr<INode> { return std::make_shared<FMidiInput>(); },
-			},
-			{
-				"VirtualKbd", "Virtual Keyboard",
-				"On-screen keyboard. Click keys with the mouse or use A S D F G H J K\n"
-				"(white) and W E T Y U (black) on the computer keyboard.\n"
-				"Outputs: Gate, Frequency, Velocity, ModWheel.",
-				[]() -> std::shared_ptr<INode> { return std::make_shared<FVirtualKeyboard>(); },
 			},
 			{
 				"Output", "Output",

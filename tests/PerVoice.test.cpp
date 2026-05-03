@@ -1,8 +1,6 @@
 #include "dsp/Gain.h"
-#include "dsp/MidiInput.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
-#include "dsp/VirtualKeyboard.h"
 #include "graph/Graph.h"
 #include "io/PatchSerializer.h"
 
@@ -14,11 +12,9 @@
 
 using NodeSynth::FGain;
 using NodeSynth::FGraphModel;
-using NodeSynth::FMidiInput;
 using NodeSynth::FNodeId;
 using NodeSynth::FOscillator;
 using NodeSynth::FOutput;
-using NodeSynth::FVirtualKeyboard;
 using NodeSynth::LoadPatch;
 using NodeSynth::SavePatch;
 
@@ -57,16 +53,9 @@ TEST_CASE("Per-voice flag: rejected on non-cloneable nodes", "[pervoice]")
 {
 	FGraphModel Model;
 	const FNodeId OutputId = Model.AddNode(std::make_shared<FOutput>());
-	const FNodeId KbdId = Model.AddNode(std::make_shared<FVirtualKeyboard>());
-	const FNodeId MidiId = Model.AddNode(std::make_shared<FMidiInput>());
 
 	REQUIRE_FALSE(Model.SetNodePerVoice(OutputId, true));
-	REQUIRE_FALSE(Model.SetNodePerVoice(KbdId, true));
-	REQUIRE_FALSE(Model.SetNodePerVoice(MidiId, true));
-
 	REQUIRE_FALSE(Model.GetNodes().at(OutputId).bPerVoice);
-	REQUIRE_FALSE(Model.GetNodes().at(KbdId).bPerVoice);
-	REQUIRE_FALSE(Model.GetNodes().at(MidiId).bPerVoice);
 }
 
 TEST_CASE("Per-voice flag: returns false for unknown node id", "[pervoice]")

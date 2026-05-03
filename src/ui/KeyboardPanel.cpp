@@ -1,11 +1,8 @@
-#include "ui/VirtualKeyboardUI.h"
+#include "ui/KeyboardPanel.h"
 
 #include <cmath>
-#include <cstdio>
 
 #include <imgui.h>
-
-#include "dsp/VirtualKeyboard.h"
 
 namespace NodeSynth
 {
@@ -14,12 +11,9 @@ namespace NodeSynth
 		// Semitone offsets from the displayed octave's bottom C.
 		constexpr int32_t WhiteSemis[] = { 0, 2, 4, 5, 7, 9, 11, 12 };
 		constexpr int32_t BlackSemis[] = { 1, 3, 6, 8, 10 };
-
 		// Index of the white key that the corresponding black key sits to the right of.
-		// Pattern in an octave: W B W B W . W B W B W B W (the dot is the gap between E and F).
 		constexpr int32_t BlackAfterWhite[] = { 0, 1, 3, 4, 5 };
 
-		// FL / Ableton-style computer-keyboard mapping: home row for whites, top row for blacks.
 		ImGuiKey KeyForSemitone(int32_t Semi)
 		{
 			switch (Semi)
@@ -66,45 +60,90 @@ namespace NodeSynth
 		{
 			return P.x >= Min.x && P.x < Max.x && P.y >= Min.y && P.y < Max.y;
 		}
+
+		uint8_t SemitoneToMidi(int32_t Octave, int32_t Semi)
+		{
+			const int32_t M = 12 * (Octave + 1) + Semi;
+			if (M < 0) { return 0; }
+			if (M > 127) { return 127; }
+			return static_cast<uint8_t>(M);
+		}
 	}
 
-	void DrawVirtualKeyboardUI(FVirtualKeyboard& Kbd, const FCommandSink& Sink)
+	bool FKeyboardPanel::IsKeyHeld(int32_t SemitoneFromBottomC) const
 	{
-		auto WriteParam = [&](uint32_t Index, float Value)
+		for (size_t I = 0; I < NumHeldNotes; ++I)
 		{
-			Kbd.SetParamValue(Index, Value);
-			Sink.SetParam(Index, Value);
-		};
-
-		ImGui::Separator();
-
-		// -- Octave row ---------------------------------------------------------
-		int32_t Octave = static_cast<int32_t>(std::lround(Kbd.GetParamValue(FVirtualKeyboard::Param_Octave)));
-		if (ImGui::Button("Oct -"))
-		{
-			WriteParam(FVirtualKeyboard::Param_Octave, static_cast<float>(Octave - 1));
+			if (HeldSemitones[I] == static_cast<int8_t>(SemitoneFromBottomC))
+			{
+				return true;
+			}
 		}
+		return false;
+	}
+
+	void FKeyboardPanel::PressNote(int32_t Semi, const FCommandSink& Sink)
+	{
+		const uint8_t Note = SemitoneToMidi(Octave.load(std::memory_order_relaxed), Semi);
+		for (size_t I = 0; I < NumHeldNotes; ++I)
+		{
+			if (HeldNotes[I] == Note) { return; }
+		}
+		if (NumHeldNotes >= MaxHeldNotes) { return; }
+		HeldNotes[NumHeldNotes] = Note;
+		HeldSemitones[NumHeldNotes] = static_cast<int8_t>(Semi);
+		++NumHeldNotes;
+		Sink.NoteOn(Note, Velocity.load(std::memory_order_relaxed));
+	}
+
+	void FKeyboardPanel::ReleaseNote(int32_t Semi, const FCommandSink& Sink)
+	{
+		for (size_t I = 0; I < NumHeldNotes; ++I)
+		{
+			if (HeldSemitones[I] == static_cast<int8_t>(Semi))
+			{
+				const uint8_t Note = HeldNotes[I];
+				for (size_t J = I + 1; J < NumHeldNotes; ++J)
+				{
+					HeldNotes[J - 1] = HeldNotes[J];
+					HeldSemitones[J - 1] = HeldSemitones[J];
+				}
+				--NumHeldNotes;
+				Sink.NoteOff(Note);
+				return;
+			}
+		}
+	}
+
+	void FKeyboardPanel::ReleaseAll(const FCommandSink& Sink)
+	{
+		for (size_t I = 0; I < NumHeldNotes; ++I)
+		{
+			Sink.NoteOff(HeldNotes[I]);
+		}
+		NumHeldNotes = 0;
+	}
+
+	void FKeyboardPanel::Draw(const FCommandSink& Sink)
+	{
+		// -- Octave + Velocity controls ----------------------------------------
+		int32_t Oct = Octave.load(std::memory_order_relaxed);
+		if (ImGui::Button("Oct -")) { Oct = std::max(0, Oct - 1); Octave.store(Oct); }
 		ImGui::SameLine();
-		ImGui::Text("C%d", Octave);
+		ImGui::Text("C%d", Oct);
 		ImGui::SameLine();
-		if (ImGui::Button("Oct +"))
+		if (ImGui::Button("Oct +")) { Oct = std::min(8, Oct + 1); Octave.store(Oct); }
+		ImGui::SameLine();
+		float Vel = Velocity.load(std::memory_order_relaxed);
+		ImGui::SetNextItemWidth(120.0f);
+		if (ImGui::SliderFloat("Vel", &Vel, 0.0f, 1.0f, "%.2f"))
 		{
-			WriteParam(FVirtualKeyboard::Param_Octave, static_cast<float>(Octave + 1));
+			if (Vel < 0.0f) { Vel = 0.0f; }
+			if (Vel > 1.0f) { Vel = 1.0f; }
+			Velocity.store(Vel, std::memory_order_relaxed);
 		}
 
-		// Refresh in case the buttons changed it (also clamps).
-		Octave = static_cast<int32_t>(std::lround(Kbd.GetParamValue(FVirtualKeyboard::Param_Octave)));
-
-		// -- Mod slider ---------------------------------------------------------
-		float Mod = Kbd.GetParamValue(FVirtualKeyboard::Param_ModWheel);
-		if (ImGui::SliderFloat("Mod", &Mod, 0.0f, 1.0f, "%.2f"))
-		{
-			WriteParam(FVirtualKeyboard::Param_ModWheel, Mod);
-		}
-
-		// -- Piano keyboard -----------------------------------------------------
-		// Sizes scale with the font so the keyboard grows on hi-DPI displays.
-		// (GetFontSize() / 13 = the DPI scale set in main.cpp.)
+		// -- Piano keyboard ----------------------------------------------------
 		const float Scale = ImGui::GetFontSize() / 13.0f;
 		const float WhiteKeyWidth = 28.0f * Scale;
 		const float WhiteKeyHeight = 110.0f * Scale;
@@ -116,8 +155,6 @@ namespace NodeSynth
 		ImDrawList* Draw = ImGui::GetWindowDrawList();
 		const ImVec2 Origin = ImGui::GetCursorScreenPos();
 
-		// One InvisibleButton over the whole keyboard area to claim hover/active state.
-		// Per-key hit-testing is done manually below so black keys can take priority.
 		ImGui::InvisibleButton("##vkbd", ImVec2(TotalWidth, WhiteKeyHeight));
 		const bool bAreaHovered = ImGui::IsItemHovered();
 		const bool bMouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Left);
@@ -127,7 +164,6 @@ namespace NodeSynth
 			OutMin = ImVec2(Origin.x + WhiteIndex * WhiteKeyWidth, Origin.y);
 			OutMax = ImVec2(OutMin.x + WhiteKeyWidth, Origin.y + WhiteKeyHeight);
 		};
-
 		auto BlackKeyRect = [&](int32_t BlackIndex, ImVec2& OutMin, ImVec2& OutMax)
 		{
 			const int32_t WhiteIdx = BlackAfterWhite[BlackIndex];
@@ -136,7 +172,7 @@ namespace NodeSynth
 			OutMax = ImVec2(OutMin.x + BlackKeyWidth, Origin.y + BlackKeyHeight);
 		};
 
-		// -- Hit-test the mouse: black keys win when overlapping a white -------
+		// Hit-test mouse.
 		int32_t MouseSemi = -1;
 		if (bAreaHovered)
 		{
@@ -168,17 +204,12 @@ namespace NodeSynth
 			}
 		}
 
-		// -- Build desired-held state from mouse + computer keyboard ------------
+		// Build desired-held state from mouse + computer keyboard.
 		bool DesiredHold[13] = {};
-
 		if (bMouseDown && MouseSemi >= 0)
 		{
 			DesiredHold[MouseSemi] = true;
 		}
-
-		// Keyboard input is application-global so the user can hold a note on the
-		// computer keyboard while dragging a slider in another window. We only
-		// suppress when a text field is actively capturing typed input.
 		const bool bAcceptKeys = !ImGui::GetIO().WantTextInput;
 		if (bAcceptKeys)
 		{
@@ -192,44 +223,34 @@ namespace NodeSynth
 			}
 		}
 
-		// -- Reconcile with actual held state -----------------------------------
-		// If a text field grabs typing AND nothing is mouse-held, force-release
-		// everything so notes don't stick when the user starts typing into a
-		// slider's numeric edit. Mouse interaction always remains active.
+		// Reconcile.
 		if (!bAcceptKeys && !bMouseDown)
 		{
-			Kbd.ReleaseAll(Sink);
+			ReleaseAll(Sink);
 		}
 		else
 		{
 			for (int32_t Semi = 0; Semi <= 12; ++Semi)
 			{
-				const bool bIsHeld = Kbd.IsKeyHeld(Semi);
-				if (DesiredHold[Semi] && !bIsHeld)
-				{
-					Kbd.PressNote(Semi, Sink);
-				}
-				else if (!DesiredHold[Semi] && bIsHeld)
-				{
-					Kbd.ReleaseNote(Semi, Sink);
-				}
+				const bool bIsHeld = IsKeyHeld(Semi);
+				if (DesiredHold[Semi] && !bIsHeld) { PressNote(Semi, Sink); }
+				else if (!DesiredHold[Semi] && bIsHeld) { ReleaseNote(Semi, Sink); }
 			}
 		}
 
-		// -- Draw white keys first (under the blacks) ---------------------------
+		// Draw white keys.
 		for (size_t I = 0; I < std::size(WhiteSemis); ++I)
 		{
 			ImVec2 Min;
 			ImVec2 Max;
 			WhiteKeyRect(static_cast<int32_t>(I), Min, Max);
 			const int32_t Semi = WhiteSemis[I];
-			const bool bHeld = Kbd.IsKeyHeld(Semi);
+			const bool bHeld = IsKeyHeld(Semi);
 			const ImU32 Fill = bHeld
 				? IM_COL32(180, 200, 255, 255)
 				: IM_COL32(245, 245, 245, 255);
 			Draw->AddRectFilled(Min, Max, Fill, 2.0f);
 			Draw->AddRect(Min, Max, IM_COL32(0, 0, 0, 255), 2.0f, 0, 1.0f);
-
 			const char* Label = LabelForSemitone(Semi);
 			const ImVec2 TextSize = ImGui::CalcTextSize(Label);
 			const ImVec2 TextPos(
@@ -238,20 +259,19 @@ namespace NodeSynth
 			Draw->AddText(TextPos, IM_COL32(40, 40, 40, 255), Label);
 		}
 
-		// -- Draw black keys on top ---------------------------------------------
+		// Draw black keys.
 		for (size_t I = 0; I < std::size(BlackSemis); ++I)
 		{
 			ImVec2 Min;
 			ImVec2 Max;
 			BlackKeyRect(static_cast<int32_t>(I), Min, Max);
 			const int32_t Semi = BlackSemis[I];
-			const bool bHeld = Kbd.IsKeyHeld(Semi);
+			const bool bHeld = IsKeyHeld(Semi);
 			const ImU32 Fill = bHeld
 				? IM_COL32(120, 80, 200, 255)
 				: IM_COL32(20, 20, 20, 255);
 			Draw->AddRectFilled(Min, Max, Fill, 2.0f);
 			Draw->AddRect(Min, Max, IM_COL32(0, 0, 0, 255), 2.0f, 0, 1.0f);
-
 			const char* Label = LabelForSemitone(Semi);
 			const ImVec2 TextSize = ImGui::CalcTextSize(Label);
 			const ImVec2 TextPos(

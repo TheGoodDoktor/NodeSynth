@@ -16,7 +16,6 @@
 #include "dsp/Meter.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
-#include "dsp/VirtualKeyboard.h"
 #include "dsp/VoiceAllocator.h"
 #include "graph/Graph.h"
 
@@ -46,7 +45,6 @@ namespace
 	FBuiltPatch BuildSeededPatch()
 	{
 		FBuiltPatch P;
-		auto Kbd = std::make_shared<FVirtualKeyboard>();
 		auto Alloc = std::make_shared<FVoiceAllocator>();
 		auto Adsr = std::make_shared<FAdsr>();
 		auto Osc = std::make_shared<FOscillator>();
@@ -56,7 +54,6 @@ namespace
 
 		GainNode->SetParamValue(FGain::Param_Gain, 0.15f);
 
-		P.Model.AddNode(Kbd, 60.0f, 60.0f);
 		const FNodeId AllocId = P.Model.AddNode(Alloc, 60.0f, 240.0f);
 		const FNodeId AdsrId = P.Model.AddNode(Adsr, 340.0f, 60.0f);
 		const FNodeId OscId = P.Model.AddNode(Osc, 340.0f, 240.0f);

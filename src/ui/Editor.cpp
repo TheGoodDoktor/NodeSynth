@@ -16,7 +16,6 @@
 #include "dsp/Gain.h"
 #include "dsp/GateButton.h"
 #include "dsp/Meter.h"
-#include "dsp/MidiInput.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
 #include "dsp/Scope.h"
@@ -24,17 +23,15 @@
 #include "dsp/SidPlayer.h"
 #include "dsp/Svf.h"
 #include "dsp/Vca.h"
-#include "dsp/VirtualKeyboard.h"
+#include "midi/MidiDeviceManager.h"
 #include "ui/AdsrUI.h"
 #include "ui/MeterUI.h"
-#include "ui/MidiInputUI.h"
 #include "ui/NodeIcons.h"
 #include "ui/NodeRegistry.h"
 #include "ui/Palette.h"
 #include "ui/ScopeUI.h"
 #include "ui/SequencerUI.h"
 #include "ui/SidPlayerUI.h"
-#include "ui/VirtualKeyboardUI.h"
 
 namespace ed = ax::NodeEditor;
 
@@ -138,19 +135,6 @@ namespace NodeSynth
 			}
 		}
 
-		// Locate the (single) FMidiInput node in the graph, if any. Returns
-		// nullptr if the user hasn't placed one.
-		FMidiInput* FindMidiInput(FGraphModel& Model)
-		{
-			for (const auto& [Id, Rec] : Model.GetNodes())
-			{
-				if (auto* Mi = dynamic_cast<FMidiInput*>(Rec.Node.get()))
-				{
-					return Mi;
-				}
-			}
-			return nullptr;
-		}
 	}
 
 	bool FGraphEditorPanel::Draw(FGraphModel& Model)
@@ -161,10 +145,10 @@ namespace NodeSynth
 		// panel is showing a node. CC events feed two consumers:
 		//   1) Learn mode: capture the next CC after a 200 ms guard window.
 		//   2) Otherwise: apply any matching mapping to its target param.
-		if (FMidiInput* Mi = FindMidiInput(Model))
+		if (MidiManager != nullptr)
 		{
 			const double Now = ImGui::GetTime();
-			Mi->DrainCcEvents([&](uint8_t Channel, uint8_t Cc, uint8_t Value)
+			MidiManager->DrainCcEvents([&](uint8_t Channel, uint8_t Cc, uint8_t Value)
 			{
 				if (LearnTargetNodeId != 0 && (Now - LearnStartTimeSeconds) > 0.2)
 				{
@@ -1065,32 +1049,52 @@ namespace NodeSynth
 		{
 			DrawSidPlayerUI(*Sid);
 		}
-		if (auto* Mi = dynamic_cast<FMidiInput*>(Rec->Node.get()))
-		{
-			DrawMidiInputUI(*Mi);
-		}
 	}
 
-	void FGraphEditorPanel::DrawKeyboardPanel(FGraphModel& Model)
+	void FGraphEditorPanel::DrawKeyboardPanel(FGraphModel& /*Model*/)
 	{
-		bool bAnyDrawn = false;
-		for (const auto& [Id, Rec] : Model.GetNodes())
+		// Project-level note input: a MIDI device combo + the on-screen
+		// keyboard. Both feed the audio command queue (notes + velocity);
+		// the audio thread broadcasts to every voice allocator.
+		if (MidiManager != nullptr)
 		{
-			if (auto* Kbd = dynamic_cast<FVirtualKeyboard*>(Rec.Node.get()))
+			const auto Names = MidiManager->GetDeviceNames();
+			const int32_t Selected = MidiManager->GetSelectedPort();
+			const char* Preview = (Selected >= 0 && Selected < static_cast<int32_t>(Names.size()))
+				? Names[Selected].c_str()
+				: "(none)";
+			ImGui::SetNextItemWidth(220.0f);
+			if (ImGui::BeginCombo("MIDI Device", Preview))
 			{
-				if (bAnyDrawn)
+				if (ImGui::Selectable("(none)", Selected < 0))
 				{
-					ImGui::Separator();
+					MidiManager->SetDevicePort(-1);
 				}
-				ImGui::Text("Virtual Keyboard (Id %llu)", static_cast<unsigned long long>(Id));
-				DrawVirtualKeyboardUI(*Kbd, FCommandSink{ CommandRing, Id });
-				bAnyDrawn = true;
+				for (int32_t I = 0; I < static_cast<int32_t>(Names.size()); ++I)
+				{
+					const bool bSel = (I == Selected);
+					if (ImGui::Selectable(Names[I].c_str(), bSel))
+					{
+						MidiManager->SetDevicePort(I);
+					}
+					if (bSel) { ImGui::SetItemDefaultFocus(); }
+				}
+				ImGui::EndCombo();
+			}
+			ImGui::SameLine();
+			int32_t Channel = MidiManager->GetChannelFilter();
+			ImGui::SetNextItemWidth(80.0f);
+			static const char* ChannelLabels[17] = {
+				"Omni", "Ch 1", "Ch 2", "Ch 3", "Ch 4", "Ch 5", "Ch 6", "Ch 7",
+				"Ch 8", "Ch 9", "Ch 10", "Ch 11", "Ch 12", "Ch 13", "Ch 14", "Ch 15", "Ch 16"
+			};
+			if (ImGui::Combo("##ch", &Channel, ChannelLabels, 17))
+			{
+				MidiManager->SetChannelFilter(Channel);
 			}
 		}
-		if (!bAnyDrawn)
-		{
-			ImGui::TextDisabled("Add a Virtual Keyboard node from the graph's right-click menu.");
-		}
+		ImGui::Separator();
+		Keyboard.Draw(FCommandSink{ CommandRing, 0 });
 	}
 
 	void FGraphEditorPanel::DrawPatchInfoPanel(FGraphModel& Model)

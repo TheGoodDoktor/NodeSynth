@@ -1,4 +1,3 @@
-#include "dsp/MidiInput.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
 #include "dsp/VoiceAllocator.h"
@@ -13,7 +12,6 @@ using NodeSynth::FAudioCommandRing;
 using NodeSynth::FAudioGraph;
 using NodeSynth::FCommandSink;
 using NodeSynth::FGraphModel;
-using NodeSynth::FMidiInput;
 using NodeSynth::FNodeId;
 using NodeSynth::FOutput;
 using NodeSynth::FProcessContext;

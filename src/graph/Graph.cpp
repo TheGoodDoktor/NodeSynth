@@ -7,7 +7,6 @@
 #include <unordered_set>
 #include <utility>
 
-#include "dsp/MidiInput.h"
 #include "dsp/VoiceAllocator.h"
 #include "dsp/internal/VoiceMixer.h"
 #include "graph/EditHistory.h"
@@ -688,13 +687,7 @@ namespace NodeSynth
 					Node->SetInputBuffer(I, nullptr, 0);
 					Node->SetInputBuffer(I, nullptr, 1);
 				}
-				// FMidiInput is ticked from Graph->MidiInputs (below) — including
-				// unreachable instances. Skip it here to avoid double-processing
-				// when it IS reachable.
-				if (dynamic_cast<FMidiInput*>(Node.get()) == nullptr)
-				{
-					OrderedNodes.push_back(Node);
-				}
+				OrderedNodes.push_back(Node);
 			}
 
 			// Append any mixers sourced from this node so they run after its
@@ -800,37 +793,11 @@ namespace NodeSynth
 			}
 		}
 
-		// MIDI inputs are ticked unconditionally each block — Graph->Process
-		// walks Graph->MidiInputs before OrderedNodes. Include every
-		// FMidiInput from the model (not just reachable ones) so the user
-		// can drive a voice allocator from a MIDI device without wiring
-		// the MIDI Input's outputs into the audio chain. Prepare and
-		// nullptr-initialise inputs here too, since these instances are
-		// excluded from the OrderedNodes prep loop above.
-		for (const auto& [Id, Rec] : Nodes)
-		{
-			if (auto* Midi = dynamic_cast<FMidiInput*>(Rec.Node.get()))
-			{
-				Midi->Prepare(SampleRate);
-				Midi->SetVoiceAllocators(Graph->Allocators);
-				Graph->MidiInputs.push_back(Midi);
-			}
-		}
-
 		return Graph;
 	}
 
 	void FAudioGraph::Process(const FProcessContext& Ctx)
 	{
-		// Tick MIDI inputs first so any notes captured this block reach the
-		// voice allocators before they Process. MidiInputs intentionally
-		// includes unreachable instances (FMidiInput uses out-of-band
-		// dispatch to allocators rather than wired audio outputs), so this
-		// list is the only path that ensures their callbacks are drained.
-		for (FMidiInput* Mi : MidiInputs)
-		{
-			if (Mi != nullptr) { Mi->Process(Ctx); }
-		}
 		for (auto& Node : OrderedNodes)
 		{
 			Node->Process(Ctx);

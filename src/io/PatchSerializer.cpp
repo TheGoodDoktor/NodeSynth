@@ -198,6 +198,19 @@ namespace NodeSynth
 					continue;
 				}
 
+				// Deprecated node types removed when note input moved out of
+				// the graph (MIDI device + on-screen keyboard are now project-
+				// level). Patches saved before that change still mention them;
+				// skip with a clear warning so the rest of the patch loads.
+				if (TypeName == "MIDI" || TypeName == "VirtualKbd")
+				{
+					std::fprintf(stderr,
+						"LoadPatch: deprecated node type '%s' (id %llu) — note input is now project-level; skipping. "
+						"Use the on-screen keyboard panel and the MIDI Device combo at the top of it.\n",
+						TypeName.c_str(), static_cast<unsigned long long>(Id));
+					continue;
+				}
+
 				std::shared_ptr<INode> Node = MakeNodeByTypeName(TypeName);
 				if (!Node)
 				{

@@ -510,14 +510,6 @@ namespace NodeSynth
 		{
 			DrawGateIcon(Draw, Min, Max, ColControl);
 		}
-		else if (std::strcmp(TypeName, "MIDI") == 0)
-		{
-			DrawPianoIcon(Draw, Min, Max, ColInput);
-		}
-		else if (std::strcmp(TypeName, "VirtualKbd") == 0)
-		{
-			DrawPianoIcon(Draw, Min, Max, ColInput);
-		}
 		else if (std::strcmp(TypeName, "Output") == 0)
 		{
 			DrawSpeakerIcon(Draw, Min, Max, ColSink);
@@ -610,8 +602,6 @@ namespace NodeSynth
 		if (std::strcmp(TypeName, "SVF") == 0)            { return ColFilter; }
 		if (std::strcmp(TypeName, "ADSR") == 0)           { return ColControl; }
 		if (std::strcmp(TypeName, "Gate") == 0)           { return ColControl; }
-		if (std::strcmp(TypeName, "MIDI") == 0)           { return ColInput; }
-		if (std::strcmp(TypeName, "VirtualKbd") == 0)     { return ColInput; }
 		if (std::strcmp(TypeName, "Output") == 0)         { return ColSink; }
 		if (std::strcmp(TypeName, "Add") == 0)            { return ColMath; }
 		if (std::strcmp(TypeName, "Multiply") == 0)       { return ColMath; }
