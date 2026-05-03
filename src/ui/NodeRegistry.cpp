@@ -8,7 +8,9 @@
 #include "dsp/Clock.h"
 #include "dsp/Compressor.h"
 #include "dsp/Constant.h"
+#include "dsp/DcBlocker.h"
 #include "dsp/Delay.h"
+#include "dsp/Equalizer.h"
 #include "dsp/Flanger.h"
 #include "dsp/Gain.h"
 #include "dsp/Gate.h"
@@ -193,6 +195,20 @@ namespace NodeSynth
 				"signal is reduced by (threshold - input) × (1 - 1/Ratio).\n"
 				"Hold time prevents chatter on signals around the threshold.",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FGate>(); },
+			},
+			{
+				"Equalizer", "Equalizer",
+				"Stereo 3-band EQ: low-shelf + peak + high-shelf in series.\n"
+				"All three gains at 0 dB → bit-identical passthrough. Standard\n"
+				"musical-EQ topology covering tilt + midrange surgery.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FEqualizer>(); },
+			},
+			{
+				"DcBlocker", "DC Blocker",
+				"Single-pole highpass at 20 Hz. Removes DC offset that\n"
+				"waveshapers and other nonlinearities can introduce. No\n"
+				"params — DC is a problem with one solution.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FDcBlocker>(); },
 			},
 			{
 				"Waveshaper", "Waveshaper",
