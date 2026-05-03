@@ -17,6 +17,7 @@
 #include "dsp/Multiply.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
+#include "dsp/Phaser.h"
 #include "dsp/Reverb.h"
 #include "dsp/SampleHold.h"
 #include "dsp/Scale.h"
@@ -160,6 +161,13 @@ namespace NodeSynth
 				"path that creates the comb-filter sweep. Negative feedback inverts\n"
 				"the comb's harmonic emphasis. L and R LFOs are 90° out of phase.",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FFlanger>(); },
+			},
+			{
+				"Phaser", "Phaser",
+				"Stereo all-pass-cascade phaser. 4/6/8 stages, signed feedback,\n"
+				"exponential LFO sweep. Different from chorus / flanger:\n"
+				"modulates filter phase, not delay time.",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FPhaser>(); },
 			},
 			{
 				"Waveshaper", "Waveshaper",
