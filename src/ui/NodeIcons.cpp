@@ -470,6 +470,347 @@ namespace NodeSynth
 			Draw->AddLine(ImVec2(L, BotY), ImVec2(R, BotY), Col, 1.5f);
 		}
 
+		// Dim variant of an accent colour for secondary glyph elements
+		// (reference lines, slider tracks, etc.). 50% alpha.
+		ImU32 DimColor(ImU32 Col)
+		{
+			return (Col & 0x00FFFFFFu) | 0x80000000u;
+		}
+
+		void DrawChorusIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Three stacked, slightly phase-shifted sine waves — voicing stack.
+			constexpr int32_t Segments = 20;
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float Cy = (Min.y + Max.y) * 0.5f;
+			const float Amp = H * 0.13f;
+			const float Spread = H * 0.18f;
+			const float YOff[3] = { -Spread, 0.0f, Spread };
+			const float PhaseOff[3] = { 0.0f, 0.6f, 1.2f };
+			for (int32_t L = 0; L < 3; ++L)
+			{
+				ImVec2 Pts[Segments + 1];
+				for (int32_t I = 0; I <= Segments; ++I)
+				{
+					const float T = static_cast<float>(I) / Segments;
+					const float X = Min.x + W * 0.10f + T * W * 0.80f;
+					const float Y = Cy + YOff[L] - Amp * std::sin(T * 2.0f * 3.14159265f + PhaseOff[L]);
+					Pts[I] = ImVec2(X, Y);
+				}
+				Draw->AddPolyline(Pts, Segments + 1, Col, 0, 1.2f);
+			}
+		}
+
+		void DrawFlangerIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Comb-filter response: cosine-squared peaks/notches across the band.
+			constexpr int32_t Segments = 32;
+			ImVec2 Pts[Segments + 1];
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.10f;
+			const float R = Max.x - W * 0.10f;
+			const float Mid = (Min.y + Max.y) * 0.5f;
+			const float Amp = H * 0.30f;
+			for (int32_t I = 0; I <= Segments; ++I)
+			{
+				const float T = static_cast<float>(I) / Segments;
+				const float X = L + T * (R - L);
+				const float Y = Mid - Amp * std::cos(T * 4.0f * 3.14159265f);
+				Pts[I] = ImVec2(X, Y);
+			}
+			Draw->AddPolyline(Pts, Segments + 1, Col, 0, 1.5f);
+		}
+
+		void DrawPhaserIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Spectrum with a single deep notch in the centre — phaser signature.
+			constexpr int32_t Segments = 32;
+			ImVec2 Pts[Segments + 1];
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.10f;
+			const float R = Max.x - W * 0.10f;
+			const float Top = Min.y + H * 0.25f;
+			const float Bot = Max.y - H * 0.20f;
+			for (int32_t I = 0; I <= Segments; ++I)
+			{
+				const float T = static_cast<float>(I) / Segments;
+				const float X = L + T * (R - L);
+				const float D = (T - 0.5f) * 5.0f;       // -2.5 .. +2.5
+				const float Notch = std::exp(-D * D);    // Gaussian dip
+				const float Y = Top + (Bot - Top) * Notch;
+				Pts[I] = ImVec2(X, Y);
+			}
+			Draw->AddPolyline(Pts, Segments + 1, Col, 0, 1.5f);
+		}
+
+		void DrawCompressorIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Compression transfer curve: 1:1 below threshold, then shallower.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.18f;
+			const float R = Max.x - W * 0.10f;
+			const float B = Max.y - H * 0.18f;
+			const float T = Min.y + H * 0.18f;
+			const float KneeX = L + (R - L) * 0.45f;
+			const float KneeY = B - (B - T) * 0.55f;
+			Draw->AddLine(ImVec2(L, B), ImVec2(KneeX, KneeY), Col, 1.5f);
+			Draw->AddLine(ImVec2(KneeX, KneeY), ImVec2(R, T + (B - T) * 0.18f), Col, 1.5f);
+			Draw->AddLine(ImVec2(KneeX, B), ImVec2(KneeX, KneeY), DimColor(Col), 1.0f);
+		}
+
+		void DrawLimiterIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Brickwall: ramp up then completely flat ceiling.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.18f;
+			const float R = Max.x - W * 0.10f;
+			const float B = Max.y - H * 0.18f;
+			const float Ceiling = Min.y + H * 0.30f;
+			const float HingeX = L + (R - L) * 0.45f;
+			Draw->AddLine(ImVec2(L, B), ImVec2(HingeX, Ceiling), Col, 1.5f);
+			Draw->AddLine(ImVec2(HingeX, Ceiling), ImVec2(R, Ceiling), Col, 1.5f);
+			Draw->AddLine(ImVec2(L, Ceiling - 4.0f), ImVec2(R, Ceiling - 4.0f), DimColor(Col), 1.0f);
+		}
+
+		void DrawNoiseGateIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Step transfer: zero floor, then opens to constant level past threshold.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.15f;
+			const float R = Max.x - W * 0.10f;
+			const float B = Max.y - H * 0.22f;
+			const float T = Min.y + H * 0.22f;
+			const float StepX = L + (R - L) * 0.45f;
+			Draw->AddLine(ImVec2(L, B), ImVec2(StepX, B), Col, 1.5f);
+			Draw->AddLine(ImVec2(StepX, B), ImVec2(StepX, T), Col, 1.5f);
+			Draw->AddLine(ImVec2(StepX, T), ImVec2(R, T), Col, 1.5f);
+		}
+
+		void DrawEqualizerIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Three vertical EQ slider tracks with knobs at different heights.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float Cy = (Min.y + Max.y) * 0.5f;
+			const float L = Min.x + W * 0.22f;
+			const float R = Max.x - W * 0.22f;
+			const float TrackHalfH = H * 0.30f;
+			constexpr int32_t NumBands = 3;
+			const float Spacing = (R - L) / (NumBands - 1);
+			const float Heights[NumBands] = { -0.45f, 0.55f, -0.20f };
+			const ImU32 TrackCol = DimColor(Col);
+			for (int32_t I = 0; I < NumBands; ++I)
+			{
+				const float X = L + I * Spacing;
+				Draw->AddLine(ImVec2(X, Cy - TrackHalfH), ImVec2(X, Cy + TrackHalfH), TrackCol, 1.0f);
+				const float KnobY = Cy + Heights[I] * TrackHalfH;
+				Draw->AddRectFilled(ImVec2(X - 3.0f, KnobY - 2.0f),
+					ImVec2(X + 3.0f, KnobY + 2.0f), Col);
+			}
+		}
+
+		void DrawDcBlockerIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Sine sitting above the centre line, with the centre line drawn
+			// dimly to suggest "remove the offset, return to zero".
+			constexpr int32_t Segments = 24;
+			ImVec2 Pts[Segments + 1];
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.10f;
+			const float R = Max.x - W * 0.10f;
+			const float Cy = (Min.y + Max.y) * 0.5f;
+			const float OffsetY = -H * 0.20f;
+			const float Amp = H * 0.18f;
+			for (int32_t I = 0; I <= Segments; ++I)
+			{
+				const float T = static_cast<float>(I) / Segments;
+				const float X = L + T * (R - L);
+				const float Y = Cy + OffsetY - Amp * std::sin(T * 2.0f * 3.14159265f);
+				Pts[I] = ImVec2(X, Y);
+			}
+			Draw->AddPolyline(Pts, Segments + 1, Col, 0, 1.5f);
+			Draw->AddLine(ImVec2(L, Cy), ImVec2(R, Cy), DimColor(Col), 1.0f);
+		}
+
+		void DrawTremoloIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// High-freq sine modulated by a slow envelope (classic AM shape).
+			constexpr int32_t Segments = 48;
+			ImVec2 Pts[Segments + 1];
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.10f;
+			const float R = Max.x - W * 0.10f;
+			const float Cy = (Min.y + Max.y) * 0.5f;
+			const float MaxAmp = H * 0.32f;
+			for (int32_t I = 0; I <= Segments; ++I)
+			{
+				const float T = static_cast<float>(I) / Segments;
+				const float X = L + T * (R - L);
+				const float Env = 0.5f - 0.5f * std::cos(T * 2.0f * 3.14159265f);
+				const float Y = Cy - MaxAmp * Env * std::sin(T * 14.0f * 3.14159265f);
+				Pts[I] = ImVec2(X, Y);
+			}
+			Draw->AddPolyline(Pts, Segments + 1, Col, 0, 1.4f);
+		}
+
+		void DrawAutoPanIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Sine-shaped path between left and right "speakers" — the pan sweep.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.18f;
+			const float R = Max.x - W * 0.18f;
+			const float Cy = (Min.y + Max.y) * 0.5f;
+			constexpr int32_t Segments = 24;
+			ImVec2 Pts[Segments + 1];
+			const float Amp = H * 0.22f;
+			for (int32_t I = 0; I <= Segments; ++I)
+			{
+				const float T = static_cast<float>(I) / Segments;
+				const float X = L + T * (R - L);
+				const float Y = Cy - Amp * std::sin(T * 2.0f * 3.14159265f);
+				Pts[I] = ImVec2(X, Y);
+			}
+			Draw->AddPolyline(Pts, Segments + 1, Col, 0, 1.4f);
+			Draw->AddCircleFilled(ImVec2(L, Cy), 2.5f, Col, 8);
+			Draw->AddCircleFilled(ImVec2(R, Cy), 2.5f, Col, 8);
+		}
+
+		void DrawBitcrusherIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Stair-stepped sine — sample-rate + bit-depth quantization signature.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.10f;
+			const float R = Max.x - W * 0.10f;
+			const float Cy = (Min.y + Max.y) * 0.5f;
+			const float Amp = H * 0.28f;
+			constexpr int32_t Steps = 12;
+			constexpr float Levels = 4.0f;
+			constexpr int32_t MaxPts = Steps * 2 + 2;
+			ImVec2 Pts[MaxPts];
+			int32_t N = 0;
+			float PrevY = Cy;
+			for (int32_t I = 0; I < Steps; ++I)
+			{
+				const float T0 = static_cast<float>(I) / Steps;
+				const float T1 = static_cast<float>(I + 1) / Steps;
+				const float X0 = L + T0 * (R - L);
+				const float X1 = L + T1 * (R - L);
+				const float Raw = std::sin((T0 + T1) * 0.5f * 2.0f * 3.14159265f);
+				const float Q = std::floor(Raw * Levels) / Levels;
+				const float Y = Cy - Amp * Q;
+				if (I > 0 && N < MaxPts) { Pts[N++] = ImVec2(X0, PrevY); }
+				if (N < MaxPts)          { Pts[N++] = ImVec2(X0, Y); }
+				if (N < MaxPts)          { Pts[N++] = ImVec2(X1, Y); }
+				PrevY = Y;
+			}
+			Draw->AddPolyline(Pts, N, Col, 0, 1.4f);
+		}
+
+		void DrawRingModIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Ring (circle) with an × inside — the multiplication metaphor.
+			const float Cx = (Min.x + Max.x) * 0.5f;
+			const float Cy = (Min.y + Max.y) * 0.5f;
+			const float Rad = std::min(Max.x - Min.x, Max.y - Min.y) * 0.32f;
+			Draw->AddCircle(ImVec2(Cx, Cy), Rad, Col, 18, 1.5f);
+			const float O = Rad * 0.55f;
+			Draw->AddLine(ImVec2(Cx - O, Cy - O), ImVec2(Cx + O, Cy + O), Col, 1.5f);
+			Draw->AddLine(ImVec2(Cx + O, Cy - O), ImVec2(Cx - O, Cy + O), Col, 1.5f);
+		}
+
+		void DrawStereoWidenerIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Outward-pointing arrows from a centre line — the "widen" gesture.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float Cx = (Min.x + Max.x) * 0.5f;
+			const float Cy = (Min.y + Max.y) * 0.5f;
+			const float Inset = W * 0.16f;
+			const float ArrHead = H * 0.10f;
+			Draw->AddLine(ImVec2(Cx, Min.y + H * 0.20f),
+				ImVec2(Cx, Max.y - H * 0.20f), DimColor(Col), 1.0f);
+			const float Lx = Min.x + Inset;
+			Draw->AddLine(ImVec2(Cx, Cy), ImVec2(Lx, Cy), Col, 1.5f);
+			Draw->AddLine(ImVec2(Lx, Cy), ImVec2(Lx + ArrHead, Cy - ArrHead), Col, 1.5f);
+			Draw->AddLine(ImVec2(Lx, Cy), ImVec2(Lx + ArrHead, Cy + ArrHead), Col, 1.5f);
+			const float Rx = Max.x - Inset;
+			Draw->AddLine(ImVec2(Cx, Cy), ImVec2(Rx, Cy), Col, 1.5f);
+			Draw->AddLine(ImVec2(Rx, Cy), ImVec2(Rx - ArrHead, Cy - ArrHead), Col, 1.5f);
+			Draw->AddLine(ImVec2(Rx, Cy), ImVec2(Rx - ArrHead, Cy + ArrHead), Col, 1.5f);
+		}
+
+		void DrawHaasWidenerIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Two stacked sine pulses; the lower one starts later — Haas delay.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.08f;
+			const float R = Max.x - W * 0.05f;
+			const float TopY = Min.y + H * 0.30f;
+			const float BotY = Max.y - H * 0.30f;
+			const float Amp = H * 0.10f;
+			constexpr int32_t Segments = 16;
+			ImVec2 Top[Segments + 1];
+			for (int32_t I = 0; I <= Segments; ++I)
+			{
+				const float T = static_cast<float>(I) / Segments;
+				Top[I] = ImVec2(L + T * (R - L),
+					TopY - Amp * std::sin(T * 2.0f * 3.14159265f));
+			}
+			Draw->AddPolyline(Top, Segments + 1, Col, 0, 1.3f);
+			ImVec2 Bot[Segments + 1];
+			const float Shift = W * 0.20f;
+			for (int32_t I = 0; I <= Segments; ++I)
+			{
+				const float T = static_cast<float>(I) / Segments;
+				Bot[I] = ImVec2(L + Shift + T * (R - L - Shift),
+					BotY - Amp * std::sin(T * 2.0f * 3.14159265f));
+			}
+			Draw->AddPolyline(Bot, Segments + 1, Col, 0, 1.3f);
+		}
+
+		void DrawExciterIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// 6-spoke sparkle above a sine "ground" — high-frequency air on
+			// top of the audio signal.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float Cx = (Min.x + Max.x) * 0.5f;
+			const float SparkY = Min.y + H * 0.32f;
+			const float Rad = H * 0.20f;
+			for (int32_t I = 0; I < 6; ++I)
+			{
+				const float A = (static_cast<float>(I) / 6.0f) * 2.0f * 3.14159265f;
+				const float Sx = Cx + std::cos(A) * Rad;
+				const float Sy = SparkY + std::sin(A) * Rad;
+				Draw->AddLine(ImVec2(Cx, SparkY), ImVec2(Sx, Sy), Col, 1.4f);
+			}
+			Draw->AddCircleFilled(ImVec2(Cx, SparkY), 1.5f, Col);
+			constexpr int32_t Segments = 20;
+			ImVec2 Pts[Segments + 1];
+			const float L = Min.x + W * 0.10f;
+			const float R = Max.x - W * 0.10f;
+			const float GroundY = Max.y - H * 0.22f;
+			const float GroundAmp = H * 0.09f;
+			for (int32_t I = 0; I <= Segments; ++I)
+			{
+				const float T = static_cast<float>(I) / Segments;
+				Pts[I] = ImVec2(L + T * (R - L),
+					GroundY - GroundAmp * std::sin(T * 2.0f * 3.14159265f));
+			}
+			Draw->AddPolyline(Pts, Segments + 1, DimColor(Col), 0, 1.2f);
+		}
+
 		void DrawDefaultIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
 		{
 			// Generic node: a small square outline.
@@ -573,6 +914,66 @@ namespace NodeSynth
 		else if (std::strcmp(TypeName, "Meter") == 0)
 		{
 			DrawMeterIcon(Draw, Min, Max, ColAmp);
+		}
+		else if (std::strcmp(TypeName, "Chorus") == 0)
+		{
+			DrawChorusIcon(Draw, Min, Max, ColEffect);
+		}
+		else if (std::strcmp(TypeName, "Flanger") == 0)
+		{
+			DrawFlangerIcon(Draw, Min, Max, ColEffect);
+		}
+		else if (std::strcmp(TypeName, "Phaser") == 0)
+		{
+			DrawPhaserIcon(Draw, Min, Max, ColEffect);
+		}
+		else if (std::strcmp(TypeName, "Compressor") == 0)
+		{
+			DrawCompressorIcon(Draw, Min, Max, ColAmp);
+		}
+		else if (std::strcmp(TypeName, "Limiter") == 0)
+		{
+			DrawLimiterIcon(Draw, Min, Max, ColAmp);
+		}
+		else if (std::strcmp(TypeName, "NoiseGate") == 0)
+		{
+			DrawNoiseGateIcon(Draw, Min, Max, ColAmp);
+		}
+		else if (std::strcmp(TypeName, "Equalizer") == 0)
+		{
+			DrawEqualizerIcon(Draw, Min, Max, ColFilter);
+		}
+		else if (std::strcmp(TypeName, "DcBlocker") == 0)
+		{
+			DrawDcBlockerIcon(Draw, Min, Max, ColFilter);
+		}
+		else if (std::strcmp(TypeName, "Tremolo") == 0)
+		{
+			DrawTremoloIcon(Draw, Min, Max, ColEffect);
+		}
+		else if (std::strcmp(TypeName, "AutoPan") == 0)
+		{
+			DrawAutoPanIcon(Draw, Min, Max, ColEffect);
+		}
+		else if (std::strcmp(TypeName, "Bitcrusher") == 0)
+		{
+			DrawBitcrusherIcon(Draw, Min, Max, ColEffect);
+		}
+		else if (std::strcmp(TypeName, "RingMod") == 0)
+		{
+			DrawRingModIcon(Draw, Min, Max, ColEffect);
+		}
+		else if (std::strcmp(TypeName, "StereoWidener") == 0)
+		{
+			DrawStereoWidenerIcon(Draw, Min, Max, ColAmp);
+		}
+		else if (std::strcmp(TypeName, "HaasWidener") == 0)
+		{
+			DrawHaasWidenerIcon(Draw, Min, Max, ColAmp);
+		}
+		else if (std::strcmp(TypeName, "Exciter") == 0)
+		{
+			DrawExciterIcon(Draw, Min, Max, ColEffect);
 		}
 		else
 		{
