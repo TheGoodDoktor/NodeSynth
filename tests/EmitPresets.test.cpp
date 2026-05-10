@@ -30,6 +30,7 @@
 #include "dsp/Meter.h"
 #include "dsp/MidiCC.h"
 #include "dsp/Mixer.h"
+#include "dsp/ModulationMatrix.h"
 #include "dsp/Multiply.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
@@ -944,6 +945,105 @@ namespace
 	}
 
 	// =============================================================
+	// Modulation Matrix showcase — two LFOs feed two filter targets
+	// through one matrix node, replacing the LFO×Scale×Add chain.
+	// =============================================================
+
+	void EmitMatrixRoutingPad(const std::filesystem::path& Root)
+	{
+		FGraphModel M;
+		auto Alloc = std::make_shared<FVoiceAllocator>();
+		auto Adsr = std::make_shared<FAdsr>();
+		auto Osc = std::make_shared<FOscillator>();
+		auto Filt = std::make_shared<FSvf>();
+		auto Lfo1 = std::make_shared<FLfo>();
+		auto Lfo2 = std::make_shared<FLfo>();
+		auto Matrix = std::make_shared<FModulationMatrix>();
+		auto CutoffScale = std::make_shared<FScale>();
+		auto GainNode = std::make_shared<FGain>();
+		auto Reverb = std::make_shared<FReverb>();
+
+		Adsr->SetParamValue(FAdsr::Param_AttackMs, 800.0f);
+		Adsr->SetParamValue(FAdsr::Param_DecayMs, 800.0f);
+		Adsr->SetParamValue(FAdsr::Param_Sustain, 0.85f);
+		Adsr->SetParamValue(FAdsr::Param_ReleaseMs, 2000.0f);
+		Osc->SetParamValue(FOscillator::Param_Shape, static_cast<float>(Saw));
+
+		Lfo1->SetParamValue(FLfo::Param_Shape, 0.0f);  // Sine
+		Lfo1->SetParamValue(FLfo::Param_RateHz, 0.3f);
+		Lfo1->SetParamValue(FLfo::Param_Amount, 1.0f);
+		Lfo2->SetParamValue(FLfo::Param_Shape, 1.0f);  // Triangle
+		Lfo2->SetParamValue(FLfo::Param_RateHz, 0.7f);
+		Lfo2->SetParamValue(FLfo::Param_Amount, 1.0f);
+
+		// Dst0 (cutoff CV): 0.7 * Lfo1 + 0.2 * Lfo2, no offset.
+		Matrix->SetParamValue(FModulationMatrix::DepthIndex(0, 0), 0.7f);
+		Matrix->SetParamValue(FModulationMatrix::DepthIndex(0, 1), 0.2f);
+		// Dst1 (resonance): 0.1 * Lfo1 + 0.4 * Lfo2 + 0.4 offset.
+		Matrix->SetParamValue(FModulationMatrix::DepthIndex(1, 0), 0.1f);
+		Matrix->SetParamValue(FModulationMatrix::DepthIndex(1, 1), 0.4f);
+		Matrix->SetParamValue(FModulationMatrix::OffsetIndex(1), 0.4f);
+
+		CutoffScale->SetParamValue(FScale::Param_InMin, -1.0f);
+		CutoffScale->SetParamValue(FScale::Param_InMax, 1.0f);
+		CutoffScale->SetParamValue(FScale::Param_OutMin, 250.0f);
+		CutoffScale->SetParamValue(FScale::Param_OutMax, 6000.0f);
+
+		Filt->SetParamValue(FSvf::Param_Cutoff, 2000.0f);
+		Filt->SetParamValue(FSvf::Param_Resonance, 0.4f);
+
+		Reverb->SetParamValue(FReverb::Param_RoomSize, 0.85f);
+		Reverb->SetParamValue(FReverb::Param_Damping, 0.4f);
+		Reverb->SetParamValue(FReverb::Param_Wet, 0.5f);
+		GainNode->SetParamValue(FGain::Param_Gain, 0.16f);
+
+		const FNodeId AllocId = M.AddNode(Alloc, 60.0f, 320.0f);
+		const FNodeId AdsrId = M.AddNode(Adsr, 320.0f, 100.0f);
+		const FNodeId OscId = M.AddNode(Osc, 320.0f, 320.0f);
+		const FNodeId Lfo1Id = M.AddNode(Lfo1, 60.0f, 540.0f);
+		const FNodeId Lfo2Id = M.AddNode(Lfo2, 60.0f, 660.0f);
+		const FNodeId MatrixId = M.AddNode(Matrix, 320.0f, 600.0f);
+		const FNodeId CutScaleId = M.AddNode(CutoffScale, 580.0f, 540.0f);
+		const FNodeId FiltId = M.AddNode(Filt, 580.0f, 320.0f);
+		const FNodeId GainId = M.AddNode(GainNode, 840.0f, 320.0f);
+		const FNodeId ReverbId = M.AddNode(Reverb, 1080.0f, 320.0f);
+
+		M.SetNodePerVoice(AdsrId, true);
+		M.SetNodePerVoice(OscId, true);
+		M.SetNodePerVoice(FiltId, true);
+
+		M.AddLink(AllocId, FVoiceAllocator::Output_Gate, AdsrId, 0);
+		M.AddLink(AllocId, FVoiceAllocator::Output_Frequency, OscId, FOscillator::Input_Frequency);
+		M.AddLink(AdsrId, 0, OscId, FOscillator::Input_Amplitude);
+		M.AddLink(OscId, 0, FiltId, FSvf::Input_Audio);
+
+		// Two LFOs into the matrix; matrix outputs broadcast (mono ->
+		// per-voice) into the per-voice SVF cutoff and resonance.
+		M.AddLink(Lfo1Id, 0, MatrixId, 0);  // Src0
+		M.AddLink(Lfo2Id, 0, MatrixId, 1);  // Src1
+		M.AddLink(MatrixId, 0, CutScaleId, 0);  // Dst0 -> Scale
+		M.AddLink(CutScaleId, 0, FiltId, FSvf::Input_Cutoff);
+		M.AddLink(MatrixId, 1, FiltId, FSvf::Input_Resonance);  // Dst1 -> Res
+
+		M.AddLink(FiltId, FSvf::Output_LowPass, GainId, 0);
+		M.AddLink(GainId, 0, ReverbId, 0);
+
+		auto MeterNode = std::make_shared<FMeter>();
+		auto Out = std::make_shared<FOutput>();
+		const FNodeId MeterId = M.AddNode(MeterNode, 1320.0f, 320.0f);
+		const FNodeId OutId = M.AddNode(Out, 1560.0f, 320.0f);
+		M.AddLink(ReverbId, 0, MeterId, 0);
+		M.AddLink(MeterId, 0, OutId, 0);
+
+		SetMeta(M, "Matrix Routing Pad",
+			"Saw pad with two LFOs combined through a single ModulationMatrix\n"
+			"into both filter Cutoff and Resonance — different mix depths per\n"
+			"destination. Without the matrix this would be 2 LFOs * 2 destinations\n"
+			"= 4 Scale + 2 Add nodes; here it's one node.");
+		SaveTo(M, Root, "Pad", "Matrix Routing Pad");
+	}
+
+	// =============================================================
 	// MIDI CC source showcase — a hardware knob drives filter cutoff.
 	// =============================================================
 
@@ -1567,4 +1667,7 @@ TEST_CASE("Emit bundled presets to ./presets/", "[.][preset-emit]")
 
 	// MIDI CC source showcase.
 	EmitCCFilterLead(Root);
+
+	// Modulation Matrix showcase.
+	EmitMatrixRoutingPad(Root);
 }

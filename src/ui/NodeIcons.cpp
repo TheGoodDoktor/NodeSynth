@@ -811,6 +811,38 @@ namespace NodeSynth
 			Draw->AddPolyline(Pts, Segments + 1, DimColor(Col), 0, 1.2f);
 		}
 
+		void DrawModMatrixIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// 3x3 dot grid — one filled, others outlined — to read as
+			// "matrix of routings" without ambiguity vs. other Modulation
+			// icons (LFO sine, Sequencer steps, S&H stairs, Clock face).
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float Cx = (Min.x + Max.x) * 0.5f;
+			const float Cy = (Min.y + Max.y) * 0.5f;
+			const float Span = std::min(W, H) * 0.55f;
+			const float DotR = std::min(W, H) * 0.06f;
+			const float Step = Span * 0.5f;
+			for (int32_t Row = 0; Row < 3; ++Row)
+			{
+				for (int32_t ColIdx = 0; ColIdx < 3; ++ColIdx)
+				{
+					const ImVec2 Centre(Cx + (ColIdx - 1) * Step, Cy + (Row - 1) * Step);
+					// Filled dot at (1,2) gives the icon a deliberate
+					// "one route active" hint without forcing the user
+					// to read it that way.
+					if (Row == 1 && ColIdx == 2)
+					{
+						Draw->AddCircleFilled(Centre, DotR, Col, 12);
+					}
+					else
+					{
+						Draw->AddCircle(Centre, DotR, Col, 12, 1.2f);
+					}
+				}
+			}
+		}
+
 		void DrawMidiCCIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
 		{
 			// Horizontal slider: track line with a knob marker at ~1/3
@@ -1048,6 +1080,10 @@ namespace NodeSynth
 		{
 			DrawMidiCCIcon(Draw, Min, Max, ColInput);
 		}
+		else if (std::strcmp(TypeName, "ModulationMatrix") == 0)
+		{
+			DrawModMatrixIcon(Draw, Min, Max, ColMath);
+		}
 		else
 		{
 			DrawDefaultIcon(Draw, Min, Max, ColAmp);
@@ -1110,6 +1146,7 @@ namespace NodeSynth
 		if (std::strcmp(TypeName, "SidPlayer") == 0)      { return ColInput; }
 		if (std::strcmp(TypeName, "WavetableOscillator") == 0) { return ColSource; }
 		if (std::strcmp(TypeName, "MidiCC") == 0)         { return ColInput; }
+		if (std::strcmp(TypeName, "ModulationMatrix") == 0) { return ColMath; }
 		return ColAmp;
 	}
 

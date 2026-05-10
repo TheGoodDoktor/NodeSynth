@@ -24,6 +24,7 @@
 #include "dsp/Meter.h"
 #include "dsp/MidiCC.h"
 #include "dsp/Mixer.h"
+#include "dsp/ModulationMatrix.h"
 #include "dsp/Multiply.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
@@ -172,6 +173,16 @@ namespace NodeSynth
 				"Per-voice flag is a no-op — every clone reads the same CC.",
 				"Modulation",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FMidiCC>(); },
+			},
+			{
+				"ModulationMatrix", "Modulation Matrix",
+				"Routes 8 Control sources to 8 Control destinations via per-cell\n"
+				"depth knobs and per-output offsets. Out_i = Offset_i + sum_j(Src_j * Depth_ij).\n"
+				"Replaces explicit LFO -> Scale -> Add chains on heavily-routed\n"
+				"patches. The custom UI surfaces an 8x8 grid; right-click any cell\n"
+				"for Zero / Invert.",
+				"Modulation",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FModulationMatrix>(); },
 			},
 
 			// --- Math ------------------------------------------------------

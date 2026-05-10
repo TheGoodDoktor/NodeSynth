@@ -21,6 +21,7 @@
 #include "dsp/Scope.h"
 #include "dsp/Sequencer.h"
 #include "dsp/MidiCC.h"
+#include "dsp/ModulationMatrix.h"
 #include "dsp/SidPlayer.h"
 #include "dsp/Svf.h"
 #include "dsp/WavetableOscillator.h"
@@ -33,6 +34,7 @@
 #include "ui/Palette.h"
 #include "ui/ScopeUI.h"
 #include "ui/MidiCCUI.h"
+#include "ui/ModMatrixUI.h"
 #include "ui/SequencerUI.h"
 #include "ui/SidPlayerUI.h"
 #include "ui/WavetableUI.h"
@@ -1132,6 +1134,10 @@ namespace NodeSynth
 				LearnTargetParamIndex = LearnSentinel_MidiCcNode;
 				LearnStartTimeSeconds = ImGui::GetTime();
 			}
+		}
+		if (auto* Matrix = dynamic_cast<FModulationMatrix*>(Rec->Node.get()))
+		{
+			DrawModMatrixUI(*Matrix, Rec->Id, Model, Sink, History);
 		}
 	}
 
