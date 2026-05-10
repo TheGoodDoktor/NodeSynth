@@ -20,14 +20,10 @@ When work starts on an item, leave the entry here until it ships, then move it t
 - **Estimate:** ~2–3 weeks, six sub-phases (SG.1–SG.6).
 - **Status:** Plan complete. Not yet started.
 
-### MIDI CC Source Node
-- **Plan:** [`PLAN-MIDI-CC.md`](PLAN-MIDI-CC.md)
-- **Summary:** New `FMidiCC` node — emits a smoothed Control output `[Min, Max]` reading from an assigned MIDI CC. Distinct from per-param MIDI Learn (which binds CC → one specific param); this node makes the CC a graph-routable Control source so it can be remapped, summed, fed to a mod matrix, etc. Requires fanning the `FMidiDeviceManager` callback's CC stream into a second SPSC ring drained on the audio thread.
-- **Estimate:** ~half a day, four sub-phases (CC.1–CC.4) in one PR.
-- **Status:** Plan complete. Not yet started.
-
 ---
 
 ## Shipped
 
-(empty — populate as items land)
+### MIDI CC Source Node
+- **Plan:** [`PLAN-MIDI-CC.md`](PLAN-MIDI-CC.md)
+- **Summary:** `FMidiCC` node emitting a smoothed Control output `[Min, Max]` driven by an assigned MIDI CC. Audio-side CC dispatch via a parallel SPSC ring in `FMidiDeviceManager`. Property panel UI with Learn button + live raw-value indicator. Showcase preset `Lead/CC Filter Lead`.

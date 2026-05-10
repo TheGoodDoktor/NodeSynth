@@ -13,6 +13,7 @@ class RtMidiIn;
 namespace NodeSynth
 {
 	class FVoiceAllocator;
+	class FMidiCC;
 	struct FProcessContext;
 
 	// Project-level MIDI input subsystem. Owns one RtMidiIn instance and two
@@ -85,13 +86,20 @@ namespace NodeSynth
 		// updates this on every recompile.
 		void SetVoiceAllocators(std::vector<FVoiceAllocator*> InAllocators);
 
-		// Drain the note ring and dispatch to every allocator. Runs on the
-		// audio thread once per block, before FAudioGraph::Process.
+		// Hand over the active snapshot's FMidiCC node list. Updated by Compile.
+		// Audio thread visits every entry when draining the audio CC ring so
+		// each node can filter for its assigned (CC#, Channel).
+		void SetMidiCcNodes(std::vector<FMidiCC*> InNodes);
+
+		// Drain the note ring + audio CC ring and dispatch to every
+		// registered allocator / MIDI CC node. Runs on the audio thread
+		// once per block, before FAudioGraph::Process.
 		void Process(const FProcessContext& Ctx);
 
 		// Called from the RtMidi callback thread. Public so the C-style free
 		// function in MidiDeviceManager.cpp can reach it. Splits incoming
-		// messages by status nibble: $Bx → CcRing, everything else → note ring.
+		// messages by status nibble: $Bx → both CC rings, everything else
+		// → note ring.
 		void OnMidiMessage(const unsigned char* Bytes, size_t Length);
 
 	private:
@@ -99,7 +107,8 @@ namespace NodeSynth
 
 		std::unique_ptr<RtMidiIn> Rt;
 		FMidiRing NoteRing;
-		FMidiCcRing CcRing;
+		FMidiCcRing CcRing;        // drained on UI thread (MIDI Learn)
+		FMidiCcRing AudioCcRing;   // drained on audio thread (FMidiCC nodes)
 
 		// UI-thread state.
 		mutable std::vector<std::string> DeviceNames;
@@ -109,5 +118,6 @@ namespace NodeSynth
 
 		// Audio-thread state.
 		std::vector<FVoiceAllocator*> Allocators;
+		std::vector<FMidiCC*> MidiCcNodes;
 	};
 }

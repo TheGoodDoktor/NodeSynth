@@ -20,6 +20,7 @@
 #include "dsp/Output.h"
 #include "dsp/Scope.h"
 #include "dsp/Sequencer.h"
+#include "dsp/MidiCC.h"
 #include "dsp/SidPlayer.h"
 #include "dsp/Svf.h"
 #include "dsp/WavetableOscillator.h"
@@ -31,6 +32,7 @@
 #include "ui/NodeRegistry.h"
 #include "ui/Palette.h"
 #include "ui/ScopeUI.h"
+#include "ui/MidiCCUI.h"
 #include "ui/SequencerUI.h"
 #include "ui/SidPlayerUI.h"
 #include "ui/WavetableUI.h"
@@ -154,6 +156,35 @@ namespace NodeSynth
 			{
 				if (LearnTargetNodeId != 0 && (Now - LearnStartTimeSeconds) > 0.2)
 				{
+					// Two flavours of learn share the LearnTarget* fields.
+					// ParamIndex == LearnSentinel_MidiCcNode means the
+					// learn target is an FMidiCC node — set its Cc and
+					// Channel params instead of adding a graph mapping.
+					if (LearnTargetParamIndex == LearnSentinel_MidiCcNode)
+					{
+						FNodeRecord* Rec = Model.FindNode(LearnTargetNodeId);
+						if (Rec && Rec->Node)
+						{
+							if (auto* CcNode = dynamic_cast<FMidiCC*>(Rec->Node.get()))
+							{
+								CcNode->SetParamValue(FMidiCC::Param_Cc,
+									static_cast<float>(Cc));
+								CcNode->SetParamValue(FMidiCC::Param_Channel,
+									static_cast<float>(Channel));
+								if (CommandRing)
+								{
+									CommandRing->Push(FAudioCommand::MakeSetParam(
+										LearnTargetNodeId, FMidiCC::Param_Cc,
+										static_cast<float>(Cc)));
+									CommandRing->Push(FAudioCommand::MakeSetParam(
+										LearnTargetNodeId, FMidiCC::Param_Channel,
+										static_cast<float>(Channel)));
+								}
+							}
+						}
+						LearnTargetNodeId = 0;
+						return;
+					}
 					FMidiMapping M;
 					M.Channel = Channel;
 					M.Cc = Cc;
@@ -1089,6 +1120,18 @@ namespace NodeSynth
 		if (auto* Wt = dynamic_cast<FWavetableOscillator*>(Rec->Node.get()))
 		{
 			DrawWavetableUI(*Wt);
+		}
+		if (auto* CcNode = dynamic_cast<FMidiCC*>(Rec->Node.get()))
+		{
+			uint64_t LearnTarget = (LearnTargetParamIndex == LearnSentinel_MidiCcNode)
+				? LearnTargetNodeId : 0;
+			if (DrawMidiCCUI(*CcNode, Rec->Id, LearnTarget))
+			{
+				// Button click: either start learn (LearnTarget set) or cancel.
+				LearnTargetNodeId = LearnTarget;
+				LearnTargetParamIndex = LearnSentinel_MidiCcNode;
+				LearnStartTimeSeconds = ImGui::GetTime();
+			}
 		}
 	}
 

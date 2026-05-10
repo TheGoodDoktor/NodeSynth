@@ -22,6 +22,7 @@
 #include "dsp/Limiter.h"
 #include "dsp/Lfo.h"
 #include "dsp/Meter.h"
+#include "dsp/MidiCC.h"
 #include "dsp/Mixer.h"
 #include "dsp/Multiply.h"
 #include "dsp/Oscillator.h"
@@ -162,6 +163,15 @@ namespace NodeSynth
 				"into an Oscillator and Gate into an ADSR for a classic sequenced lead.",
 				"Modulation",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FSequencer>(); },
+			},
+			{
+				"MidiCC", "MIDI CC",
+				"Reads a MIDI CC from the project-level MIDI device and emits\n"
+				"a smoothed Control value in [Min, Max]. Click Learn in the\n"
+				"property panel to assign by moving a hardware controller.\n"
+				"Per-voice flag is a no-op — every clone reads the same CC.",
+				"Modulation",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FMidiCC>(); },
 			},
 
 			// --- Math ------------------------------------------------------

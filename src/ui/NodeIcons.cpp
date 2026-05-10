@@ -811,6 +811,27 @@ namespace NodeSynth
 			Draw->AddPolyline(Pts, Segments + 1, DimColor(Col), 0, 1.2f);
 		}
 
+		void DrawMidiCCIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Horizontal slider: track line with a knob marker at ~1/3
+			// position. Reads as "MIDI controller" without ambiguity.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float Cy = (Min.y + Max.y) * 0.5f;
+			const float L = Min.x + W * 0.15f;
+			const float R = Max.x - W * 0.15f;
+			const ImU32 TrackCol = (Col & 0x00FFFFFFu) | 0x80000000u;
+			Draw->AddLine(ImVec2(L, Cy), ImVec2(R, Cy), TrackCol, 1.5f);
+			const float KnobX = L + (R - L) * 0.35f;
+			Draw->AddCircleFilled(ImVec2(KnobX, Cy), H * 0.16f, Col, 12);
+			// "CC" hint: two small ticks above the slider track.
+			const float TickY = Cy - H * 0.30f;
+			Draw->AddLine(ImVec2(L + W * 0.10f, TickY),
+				ImVec2(L + W * 0.10f, TickY + H * 0.10f), Col, 1.4f);
+			Draw->AddLine(ImVec2(L + W * 0.22f, TickY),
+				ImVec2(L + W * 0.22f, TickY + H * 0.10f), Col, 1.4f);
+		}
+
 		void DrawWavetableIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
 		{
 			// Stack of three single-cycle waveforms with a perspective tilt:
@@ -1023,6 +1044,10 @@ namespace NodeSynth
 		{
 			DrawWavetableIcon(Draw, Min, Max, ColSource);
 		}
+		else if (std::strcmp(TypeName, "MidiCC") == 0)
+		{
+			DrawMidiCCIcon(Draw, Min, Max, ColInput);
+		}
 		else
 		{
 			DrawDefaultIcon(Draw, Min, Max, ColAmp);
@@ -1084,6 +1109,7 @@ namespace NodeSynth
 		if (std::strcmp(TypeName, "Meter") == 0)          { return ColAmp; }
 		if (std::strcmp(TypeName, "SidPlayer") == 0)      { return ColInput; }
 		if (std::strcmp(TypeName, "WavetableOscillator") == 0) { return ColSource; }
+		if (std::strcmp(TypeName, "MidiCC") == 0)         { return ColInput; }
 		return ColAmp;
 	}
 

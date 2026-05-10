@@ -338,10 +338,12 @@ int main()
 		if (NewSnapshot)
 		{
 			AudioState.MidiManager.SetVoiceAllocators(NewSnapshot->Allocators);
+			AudioState.MidiManager.SetMidiCcNodes(NewSnapshot->MidiCcNodes);
 		}
 		else
 		{
 			AudioState.MidiManager.SetVoiceAllocators({});
+			AudioState.MidiManager.SetMidiCcNodes({});
 		}
 		AudioState.Graph.store(std::move(NewSnapshot));
 	};

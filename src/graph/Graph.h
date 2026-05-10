@@ -11,6 +11,7 @@ namespace NodeSynth
 {
 	class FEditHistory;
 	class FVoiceAllocator;
+	class FMidiCC;
 
 	struct FNodeRecord
 	{
@@ -93,6 +94,11 @@ namespace NodeSynth
 		// Voice allocators in this snapshot. NoteOn / NoteOff commands are
 		// broadcast to every entry. Populated alongside NodeById in Compile.
 		std::vector<FVoiceAllocator*> Allocators;
+
+		// FMidiCC nodes in this snapshot. The MIDI device manager visits
+		// every entry when draining its audio CC ring so each node can
+		// filter for its assigned (CC#, Channel). Populated in Compile.
+		std::vector<FMidiCC*> MidiCcNodes;
 
 		// Drains all pending commands from the ring and dispatches them. RT-safe:
 		// the ring is lock-free and SetParamValue stores into atomics. Commands

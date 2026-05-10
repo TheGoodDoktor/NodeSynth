@@ -4,6 +4,7 @@
 
 #include <cstdio>
 
+#include "dsp/MidiCC.h"
 #include "dsp/Node.h"
 #include "dsp/VoiceAllocator.h"
 
@@ -104,6 +105,11 @@ namespace NodeSynth
 		Allocators = std::move(InAllocators);
 	}
 
+	void FMidiDeviceManager::SetMidiCcNodes(std::vector<FMidiCC*> InNodes)
+	{
+		MidiCcNodes = std::move(InNodes);
+	}
+
 	void FMidiDeviceManager::OnMidiMessage(const unsigned char* Bytes, size_t Length)
 	{
 		if (Length < 3) { return; }
@@ -111,11 +117,14 @@ namespace NodeSynth
 		Event.Status = Bytes[0];
 		Event.Data1 = Bytes[1];
 		Event.Data2 = Bytes[2];
-		// Route CC ($Bx) to the UI-thread ring (MIDI Learn drains it). All
-		// other channel-voice messages go to the note ring (audio thread).
+		// Route CC ($Bx) to both rings — UI thread reads CcRing for MIDI
+		// Learn, audio thread reads AudioCcRing for FMidiCC nodes. Each
+		// ring is SPSC; the callback writes both. Other channel-voice
+		// messages go to the note ring.
 		if ((Event.Status & 0xF0) == 0xB0)
 		{
 			CcRing.Push(Event);
+			AudioCcRing.Push(Event);
 		}
 		else
 		{
@@ -150,6 +159,21 @@ namespace NodeSynth
 				for (FVoiceAllocator* Alloc : Allocators)
 				{
 					Alloc->HandleNoteOff(Event.Data1);
+				}
+			}
+		}
+
+		// Drain the audio CC ring; each registered FMidiCC filters internally
+		// by its own (CC#, Channel) settings. No channel filter applied here —
+		// CC nodes have their own per-node Channel param.
+		while (AudioCcRing.Pop(Event))
+		{
+			const uint8_t Channel = (Event.Status & 0x0F) + 1;  // 1..16
+			for (FMidiCC* Node : MidiCcNodes)
+			{
+				if (Node != nullptr)
+				{
+					Node->OnCcEvent(Channel, Event.Data1, Event.Data2);
 				}
 			}
 		}

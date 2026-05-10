@@ -7,6 +7,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "dsp/MidiCC.h"
 #include "dsp/VoiceAllocator.h"
 #include "dsp/internal/VoiceMixer.h"
 #include "graph/EditHistory.h"
@@ -802,6 +803,10 @@ namespace NodeSynth
 			if (auto* Alloc = dynamic_cast<FVoiceAllocator*>(Nodes.at(Id).Node.get()))
 			{
 				Graph->Allocators.push_back(Alloc);
+			}
+			if (auto* Cc = dynamic_cast<FMidiCC*>(Nodes.at(Id).Node.get()))
+			{
+				Graph->MidiCcNodes.push_back(Cc);
 			}
 		}
 

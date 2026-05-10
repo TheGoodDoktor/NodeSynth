@@ -28,6 +28,7 @@
 #include "dsp/Lfo.h"
 #include "dsp/Limiter.h"
 #include "dsp/Meter.h"
+#include "dsp/MidiCC.h"
 #include "dsp/Mixer.h"
 #include "dsp/Multiply.h"
 #include "dsp/Oscillator.h"
@@ -943,6 +944,76 @@ namespace
 	}
 
 	// =============================================================
+	// MIDI CC source showcase — a hardware knob drives filter cutoff.
+	// =============================================================
+
+	void EmitCCFilterLead(const std::filesystem::path& Root)
+	{
+		FGraphModel M;
+		auto Alloc = std::make_shared<FVoiceAllocator>();
+		auto Adsr = std::make_shared<FAdsr>();
+		auto Osc = std::make_shared<FOscillator>();
+		auto Filt = std::make_shared<FSvf>();
+		auto Cc = std::make_shared<FMidiCC>();
+		auto GainNode = std::make_shared<FGain>();
+		auto Reverb = std::make_shared<FReverb>();
+
+		Adsr->SetParamValue(FAdsr::Param_AttackMs, 6.0f);
+		Adsr->SetParamValue(FAdsr::Param_DecayMs, 300.0f);
+		Adsr->SetParamValue(FAdsr::Param_Sustain, 0.7f);
+		Adsr->SetParamValue(FAdsr::Param_ReleaseMs, 350.0f);
+		Osc->SetParamValue(FOscillator::Param_Shape, static_cast<float>(Saw));
+
+		Filt->SetParamValue(FSvf::Param_Cutoff, 4000.0f);  // overridden by CC input
+		Filt->SetParamValue(FSvf::Param_Resonance, 0.4f);
+
+		Cc->SetParamValue(FMidiCC::Param_Cc, 74.0f);        // most synths' "brightness"
+		Cc->SetParamValue(FMidiCC::Param_Channel, 0.0f);    // Omni
+		Cc->SetParamValue(FMidiCC::Param_Min, 200.0f);
+		Cc->SetParamValue(FMidiCC::Param_Max, 6000.0f);
+		Cc->SetParamValue(FMidiCC::Param_SmoothMs, 8.0f);
+
+		Reverb->SetParamValue(FReverb::Param_RoomSize, 0.6f);
+		Reverb->SetParamValue(FReverb::Param_Damping, 0.4f);
+		Reverb->SetParamValue(FReverb::Param_Wet, 0.3f);
+		GainNode->SetParamValue(FGain::Param_Gain, 0.18f);
+
+		const FNodeId AllocId = M.AddNode(Alloc, 60.0f, 280.0f);
+		const FNodeId AdsrId = M.AddNode(Adsr, 320.0f, 100.0f);
+		const FNodeId OscId = M.AddNode(Osc, 320.0f, 280.0f);
+		const FNodeId CcId = M.AddNode(Cc, 320.0f, 460.0f);
+		const FNodeId FiltId = M.AddNode(Filt, 580.0f, 280.0f);
+		const FNodeId GainId = M.AddNode(GainNode, 840.0f, 280.0f);
+		const FNodeId ReverbId = M.AddNode(Reverb, 1080.0f, 280.0f);
+
+		M.SetNodePerVoice(AdsrId, true);
+		M.SetNodePerVoice(OscId, true);
+		M.SetNodePerVoice(FiltId, true);
+
+		M.AddLink(AllocId, FVoiceAllocator::Output_Gate, AdsrId, 0);
+		M.AddLink(AllocId, FVoiceAllocator::Output_Frequency, OscId, FOscillator::Input_Frequency);
+		M.AddLink(AdsrId, 0, OscId, FOscillator::Input_Amplitude);
+		M.AddLink(OscId, 0, FiltId, FSvf::Input_Audio);
+		// Mono CC source -> per-voice Filter.Cutoff = broadcast.
+		M.AddLink(CcId, 0, FiltId, FSvf::Input_Cutoff);
+		M.AddLink(FiltId, FSvf::Output_LowPass, GainId, 0);
+		M.AddLink(GainId, 0, ReverbId, 0);
+
+		auto MeterNode = std::make_shared<FMeter>();
+		auto Out = std::make_shared<FOutput>();
+		const FNodeId MeterId = M.AddNode(MeterNode, 1320.0f, 280.0f);
+		const FNodeId OutId = M.AddNode(Out, 1560.0f, 280.0f);
+		M.AddLink(ReverbId, 0, MeterId, 0);
+		M.AddLink(MeterId, 0, OutId, 0);
+
+		SetMeta(M, "CC Filter Lead",
+			"Saw lead with a MIDI CC node (CC#74) driving the per-voice SVF\n"
+			"cutoff between 200 and 6000 Hz. Hit Learn on the CC node and\n"
+			"twist any hardware knob to assign your own controller.");
+		SaveTo(M, Root, "Lead", "CC Filter Lead");
+	}
+
+	// =============================================================
 	// Wavetable showcases (WT.7) — demonstrate the wavetable
 	// oscillator with a slow LFO drift and an ADSR-driven morph.
 	// =============================================================
@@ -1493,4 +1564,7 @@ TEST_CASE("Emit bundled presets to ./presets/", "[.][preset-emit]")
 	// Wavetable showcases — load bundled WAVs by relative path.
 	EmitWavetableDrift(Root);
 	EmitWavetableLead(Root);
+
+	// MIDI CC source showcase.
+	EmitCCFilterLead(Root);
 }

@@ -136,5 +136,10 @@ namespace NodeSynth
 		FNodeId  LearnTargetNodeId = 0;
 		uint32_t LearnTargetParamIndex = 0;
 		double   LearnStartTimeSeconds = 0.0;
+
+		// Sentinel value stored in LearnTargetParamIndex when the learn
+		// target is an FMidiCC node (assigning its Cc / Channel params)
+		// rather than the standard "bind this param to that CC" mapping.
+		static constexpr uint32_t LearnSentinel_MidiCcNode = 0xFFFFFFFFu;
 	};
 }
