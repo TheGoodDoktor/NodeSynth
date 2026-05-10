@@ -1,0 +1,172 @@
+{
+  "links": [
+    {
+      "from_node": 1,
+      "from_port": 0,
+      "id": 1,
+      "to_node": 2,
+      "to_port": 0
+    },
+    {
+      "from_node": 1,
+      "from_port": 1,
+      "id": 2,
+      "to_node": 3,
+      "to_port": 0
+    },
+    {
+      "from_node": 2,
+      "from_port": 0,
+      "id": 3,
+      "to_node": 3,
+      "to_port": 2
+    },
+    {
+      "from_node": 4,
+      "from_port": 0,
+      "id": 4,
+      "to_node": 5,
+      "to_port": 0
+    },
+    {
+      "from_node": 5,
+      "from_port": 0,
+      "id": 5,
+      "to_node": 3,
+      "to_port": 1
+    },
+    {
+      "from_node": 3,
+      "from_port": 0,
+      "id": 6,
+      "to_node": 6,
+      "to_port": 0
+    },
+    {
+      "from_node": 6,
+      "from_port": 0,
+      "id": 7,
+      "to_node": 7,
+      "to_port": 0
+    },
+    {
+      "from_node": 7,
+      "from_port": 0,
+      "id": 8,
+      "to_node": 8,
+      "to_port": 0
+    },
+    {
+      "from_node": 8,
+      "from_port": 0,
+      "id": 9,
+      "to_node": 9,
+      "to_port": 0
+    }
+  ],
+  "metadata": {
+    "author": "NodeSynth",
+    "bpm": 120.0,
+    "name": "Wavetable Drift",
+    "notes": "AdditiveSweep wavetable (16 frames sine -> saw) with a slow LFO\nmorphing Position across the table over ~8 seconds. Lush pad, big reverb.",
+    "sample_rate_hint": 48000.0
+  },
+  "nodes": [
+    {
+      "id": 1,
+      "params": {
+        "Glide": 0.0,
+        "NumVoices": 3.0
+      },
+      "type": "VoiceAllocator",
+      "x": 60.0,
+      "y": 280.0
+    },
+    {
+      "id": 2,
+      "params": {
+        "Attack": 1500.0,
+        "Decay": 1500.0,
+        "Release": 3000.0,
+        "Sustain": 0.8500000238418579
+      },
+      "per_voice": true,
+      "type": "ADSR",
+      "x": 320.0,
+      "y": 100.0
+    },
+    {
+      "id": 3,
+      "params": {
+        "Amplitude": 0.6000000238418579,
+        "Detune": 0.0,
+        "Frequency": 440.0,
+        "Phase": 0.0,
+        "Position": 0.0,
+        "Wavetable": "AdditiveSweep.wav"
+      },
+      "per_voice": true,
+      "type": "WavetableOscillator",
+      "x": 320.0,
+      "y": 280.0
+    },
+    {
+      "id": 4,
+      "params": {
+        "Amount": 1.0,
+        "Rate": 0.11999999731779099,
+        "Shape": 0.0
+      },
+      "type": "LFO",
+      "x": 60.0,
+      "y": 460.0
+    },
+    {
+      "id": 5,
+      "params": {
+        "InMax": 1.0,
+        "InMin": -1.0,
+        "OutMax": 1.0,
+        "OutMin": 0.0
+      },
+      "type": "Scale",
+      "x": 320.0,
+      "y": 460.0
+    },
+    {
+      "id": 6,
+      "params": {
+        "Gain": 0.18000000715255737
+      },
+      "type": "Gain",
+      "x": 580.0,
+      "y": 280.0
+    },
+    {
+      "id": 7,
+      "params": {
+        "Damping": 0.4000000059604645,
+        "RoomSize": 0.8500000238418579,
+        "Wet": 0.550000011920929
+      },
+      "type": "Reverb",
+      "x": 840.0,
+      "y": 280.0
+    },
+    {
+      "id": 8,
+      "params": {},
+      "type": "Meter",
+      "x": 1080.0,
+      "y": 280.0
+    },
+    {
+      "id": 9,
+      "params": {},
+      "type": "Output",
+      "x": 1320.0,
+      "y": 280.0
+    }
+  ],
+  "version": 1
+}

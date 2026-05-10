@@ -215,6 +215,31 @@ if(EXISTS "${NODESYNTH_PRESET_SOURCE_DIR}")
     endif()
 endif()
 
+# ---- Bundled wavetables -----------------------------------------------------
+# Same pattern as bundled presets: mirror the source-tree wavetables/ folder
+# next to the running exe (or into the macOS .app's Resources directory).
+# Regenerated via `nodesynth_tests.exe "[wavetable-emit]"`.
+set(NODESYNTH_WAVETABLE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/wavetables")
+if(EXISTS "${NODESYNTH_WAVETABLE_SOURCE_DIR}")
+    if(APPLE)
+        file(GLOB_RECURSE NODESYNTH_WAVETABLE_FILES CONFIGURE_DEPENDS
+            "${NODESYNTH_WAVETABLE_SOURCE_DIR}/*.wav")
+        foreach(WT_FILE IN LISTS NODESYNTH_WAVETABLE_FILES)
+            file(RELATIVE_PATH WT_REL "${NODESYNTH_WAVETABLE_SOURCE_DIR}" "${WT_FILE}")
+            get_filename_component(WT_REL_DIR "${WT_REL}" DIRECTORY)
+            target_sources(nodesynth PRIVATE "${WT_FILE}")
+            set_source_files_properties("${WT_FILE}" PROPERTIES
+                MACOSX_PACKAGE_LOCATION "Resources/wavetables/${WT_REL_DIR}")
+        endforeach()
+    else()
+        add_custom_command(TARGET nodesynth POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${NODESYNTH_WAVETABLE_SOURCE_DIR}"
+                "$<TARGET_FILE_DIR:nodesynth>/wavetables"
+            COMMENT "Copying bundled wavetables next to nodesynth binary")
+    endif()
+endif()
+
 # ---- Tests (Catch2 v3) ------------------------------------------------------
 option(NODESYNTH_BUILD_TESTS "Build NodeSynth unit tests" ON)
 if(NODESYNTH_BUILD_TESTS)
@@ -238,6 +263,9 @@ if(NODESYNTH_BUILD_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/src/sid/SidEmulator.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/sid/PsidLoader.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/SidPlayer.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/Wavetable.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/io/PresetBrowser.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/io/WavetableBrowser.cpp
     )
     target_include_directories(nodesynth_tests PRIVATE src "${chips_SOURCE_DIR}/chips")
     target_compile_definitions(nodesynth_tests PRIVATE NOMINMAX)

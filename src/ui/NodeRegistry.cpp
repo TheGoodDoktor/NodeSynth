@@ -40,6 +40,7 @@
 #include "dsp/Vca.h"
 #include "dsp/VoiceAllocator.h"
 #include "dsp/Waveshaper.h"
+#include "dsp/WavetableOscillator.h"
 
 namespace NodeSynth
 {
@@ -65,6 +66,16 @@ namespace NodeSynth
 				"into any Control input.",
 				"Sources",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FConstant>(); },
+			},
+			{
+				"WavetableOscillator", "Wavetable",
+				"Wavetable oscillator. Plays a stack of single-cycle waveforms;\n"
+				"the Position input morphs between adjacent frames. Load a .wav\n"
+				"whose length is a multiple of 2048 samples (one frame per 2048).\n"
+				"v1: no anti-aliasing — high notes will alias. Wire VoiceAllocator's\n"
+				"Frequency into Freq.",
+				"Sources",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FWavetableOscillator>(); },
 			},
 			{
 				"SidPlayer", "SID Player",

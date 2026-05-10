@@ -1,0 +1,271 @@
+{
+  "links": [
+    {
+      "from_node": 1,
+      "from_port": 0,
+      "id": 1,
+      "to_node": 2,
+      "to_port": 0
+    },
+    {
+      "from_node": 2,
+      "from_port": 0,
+      "id": 2,
+      "to_node": 3,
+      "to_port": 0
+    },
+    {
+      "from_node": 2,
+      "from_port": 1,
+      "id": 3,
+      "to_node": 4,
+      "to_port": 0
+    },
+    {
+      "from_node": 3,
+      "from_port": 0,
+      "id": 4,
+      "to_node": 4,
+      "to_port": 1
+    },
+    {
+      "from_node": 3,
+      "from_port": 0,
+      "id": 5,
+      "to_node": 5,
+      "to_port": 0
+    },
+    {
+      "from_node": 5,
+      "from_port": 0,
+      "id": 6,
+      "to_node": 6,
+      "to_port": 1
+    },
+    {
+      "from_node": 4,
+      "from_port": 0,
+      "id": 7,
+      "to_node": 6,
+      "to_port": 0
+    },
+    {
+      "from_node": 6,
+      "from_port": 0,
+      "id": 8,
+      "to_node": 7,
+      "to_port": 0
+    },
+    {
+      "from_node": 7,
+      "from_port": 0,
+      "id": 9,
+      "to_node": 8,
+      "to_port": 0
+    },
+    {
+      "from_node": 8,
+      "from_port": 0,
+      "id": 10,
+      "to_node": 9,
+      "to_port": 0
+    },
+    {
+      "from_node": 9,
+      "from_port": 0,
+      "id": 11,
+      "to_node": 10,
+      "to_port": 0
+    },
+    {
+      "from_node": 10,
+      "from_port": 0,
+      "id": 12,
+      "to_node": 11,
+      "to_port": 0
+    }
+  ],
+  "metadata": {
+    "author": "NodeSynth",
+    "bpm": 120.0,
+    "name": "Acid Sequence",
+    "notes": "Self-playing. Clock (130 BPM) -> 16-step Sequencer -> Saw -> resonant filter (envelope-modulated) -> Delay -> Reverb. Loads and plays itself; press a key to retrigger nothing — this patch ignores the keyboard.",
+    "sample_rate_hint": 48000.0
+  },
+  "nodes": [
+    {
+      "id": 1,
+      "params": {
+        "BPM": 130.0
+      },
+      "type": "Clock",
+      "x": 60.0,
+      "y": 100.0
+    },
+    {
+      "id": 2,
+      "params": {
+        "NumSteps": 16.0,
+        "RootNote": 36.0,
+        "StepEnabled0": 1.0,
+        "StepEnabled1": 1.0,
+        "StepEnabled10": 1.0,
+        "StepEnabled11": 1.0,
+        "StepEnabled12": 1.0,
+        "StepEnabled13": 1.0,
+        "StepEnabled14": 1.0,
+        "StepEnabled15": 1.0,
+        "StepEnabled2": 1.0,
+        "StepEnabled3": 1.0,
+        "StepEnabled4": 1.0,
+        "StepEnabled5": 1.0,
+        "StepEnabled6": 1.0,
+        "StepEnabled7": 1.0,
+        "StepEnabled8": 1.0,
+        "StepEnabled9": 1.0,
+        "StepGateLength0": 0.5,
+        "StepGateLength1": 0.5,
+        "StepGateLength10": 0.5,
+        "StepGateLength11": 0.5,
+        "StepGateLength12": 0.5,
+        "StepGateLength13": 0.5,
+        "StepGateLength14": 0.5,
+        "StepGateLength15": 0.5,
+        "StepGateLength2": 0.5,
+        "StepGateLength3": 0.5,
+        "StepGateLength4": 0.5,
+        "StepGateLength5": 0.5,
+        "StepGateLength6": 0.5,
+        "StepGateLength7": 0.5,
+        "StepGateLength8": 0.5,
+        "StepGateLength9": 0.5,
+        "StepPitch0": 0.0,
+        "StepPitch1": 0.0,
+        "StepPitch10": 5.0,
+        "StepPitch11": 0.0,
+        "StepPitch12": 12.0,
+        "StepPitch13": 0.0,
+        "StepPitch14": 7.0,
+        "StepPitch15": 0.0,
+        "StepPitch2": 12.0,
+        "StepPitch3": 0.0,
+        "StepPitch4": 7.0,
+        "StepPitch5": 0.0,
+        "StepPitch6": 0.0,
+        "StepPitch7": 12.0,
+        "StepPitch8": 0.0,
+        "StepPitch9": 0.0,
+        "StepVelocity0": 1.0,
+        "StepVelocity1": 1.0,
+        "StepVelocity10": 1.0,
+        "StepVelocity11": 1.0,
+        "StepVelocity12": 1.0,
+        "StepVelocity13": 1.0,
+        "StepVelocity14": 1.0,
+        "StepVelocity15": 1.0,
+        "StepVelocity2": 1.0,
+        "StepVelocity3": 1.0,
+        "StepVelocity4": 1.0,
+        "StepVelocity5": 1.0,
+        "StepVelocity6": 1.0,
+        "StepVelocity7": 1.0,
+        "StepVelocity8": 1.0,
+        "StepVelocity9": 1.0
+      },
+      "type": "Sequencer",
+      "x": 320.0,
+      "y": 100.0
+    },
+    {
+      "id": 3,
+      "params": {
+        "Attack": 1.0,
+        "Decay": 180.0,
+        "Release": 80.0,
+        "Sustain": 0.0
+      },
+      "type": "ADSR",
+      "x": 580.0,
+      "y": 60.0
+    },
+    {
+      "id": 4,
+      "params": {
+        "Amplitude": 0.30000001192092896,
+        "Frequency": 440.0,
+        "Shape": 1.0
+      },
+      "type": "Oscillator",
+      "x": 580.0,
+      "y": 240.0
+    },
+    {
+      "id": 5,
+      "params": {
+        "InMax": 1.0,
+        "InMin": 0.0,
+        "OutMax": 3500.0,
+        "OutMin": 200.0
+      },
+      "type": "Scale",
+      "x": 840.0,
+      "y": 60.0
+    },
+    {
+      "id": 6,
+      "params": {
+        "Cutoff": 1000.0,
+        "Resonance": 0.8500000238418579
+      },
+      "type": "SVF",
+      "x": 840.0,
+      "y": 240.0
+    },
+    {
+      "id": 7,
+      "params": {
+        "Gain": 0.3499999940395355
+      },
+      "type": "Gain",
+      "x": 1080.0,
+      "y": 240.0
+    },
+    {
+      "id": 8,
+      "params": {
+        "Feedback": 0.4000000059604645,
+        "Time": 230.0,
+        "Tone": 0.5
+      },
+      "type": "Delay",
+      "x": 1320.0,
+      "y": 240.0
+    },
+    {
+      "id": 9,
+      "params": {
+        "Damping": 0.5,
+        "RoomSize": 0.550000011920929,
+        "Wet": 0.25
+      },
+      "type": "Reverb",
+      "x": 1560.0,
+      "y": 240.0
+    },
+    {
+      "id": 10,
+      "params": {},
+      "type": "Meter",
+      "x": 1800.0,
+      "y": 240.0
+    },
+    {
+      "id": 11,
+      "params": {},
+      "type": "Output",
+      "x": 2040.0,
+      "y": 240.0
+    }
+  ],
+  "version": 1
+}

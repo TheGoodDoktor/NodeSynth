@@ -811,6 +811,50 @@ namespace NodeSynth
 			Draw->AddPolyline(Pts, Segments + 1, DimColor(Col), 0, 1.2f);
 		}
 
+		void DrawWavetableIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Stack of three single-cycle waveforms with a perspective tilt:
+			// front line is a saw, middle is a triangle, back is a sine.
+			// Suggests the "frames stacked" mental model.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.10f;
+			const float R = Max.x - W * 0.10f;
+			const float Amp = H * 0.10f;
+			constexpr int32_t Segments = 18;
+
+			auto DrawWave = [&](float Cy, float Skew, int32_t Kind, float Alpha)
+			{
+				const ImU32 LineCol = (Col & 0x00FFFFFFu) | (static_cast<uint32_t>(Alpha * 255.0f) << 24);
+				ImVec2 Pts[Segments + 1];
+				for (int32_t I = 0; I <= Segments; ++I)
+				{
+					const float T = static_cast<float>(I) / Segments;
+					const float X = L + Skew + T * (R - L);
+					float Y = 0.0f;
+					switch (Kind)
+					{
+						case 0: // sine
+							Y = -Amp * std::sin(T * 2.0f * 3.14159265f);
+							break;
+						case 1: // triangle
+							Y = -Amp * (1.0f - 2.0f * std::fabs(2.0f * std::fmod(T + 0.25f, 1.0f) - 1.0f));
+							break;
+						case 2: // saw
+							Y = -Amp * (2.0f * T - 1.0f);
+							break;
+						default: break;
+					}
+					Pts[I] = ImVec2(X, Cy + Y);
+				}
+				Draw->AddPolyline(Pts, Segments + 1, LineCol, 0, 1.3f);
+			};
+
+			DrawWave(Min.y + H * 0.30f, +W * 0.04f, 0, 0.55f);  // back: sine, faded
+			DrawWave(Min.y + H * 0.55f, +W * 0.02f, 1, 0.80f);  // mid:  triangle
+			DrawWave(Min.y + H * 0.80f,  0.0f,      2, 1.00f);  // front: saw, full
+		}
+
 		void DrawDefaultIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
 		{
 			// Generic node: a small square outline.
@@ -975,6 +1019,10 @@ namespace NodeSynth
 		{
 			DrawExciterIcon(Draw, Min, Max, ColEffect);
 		}
+		else if (std::strcmp(TypeName, "WavetableOscillator") == 0)
+		{
+			DrawWavetableIcon(Draw, Min, Max, ColSource);
+		}
 		else
 		{
 			DrawDefaultIcon(Draw, Min, Max, ColAmp);
@@ -1035,6 +1083,7 @@ namespace NodeSynth
 		if (std::strcmp(TypeName, "Scope") == 0)          { return ColAmp; }
 		if (std::strcmp(TypeName, "Meter") == 0)          { return ColAmp; }
 		if (std::strcmp(TypeName, "SidPlayer") == 0)      { return ColInput; }
+		if (std::strcmp(TypeName, "WavetableOscillator") == 0) { return ColSource; }
 		return ColAmp;
 	}
 

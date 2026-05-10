@@ -1,0 +1,150 @@
+{
+  "links": [
+    {
+      "from_node": 1,
+      "from_port": 0,
+      "id": 1,
+      "to_node": 2,
+      "to_port": 0
+    },
+    {
+      "from_node": 2,
+      "from_port": 0,
+      "id": 2,
+      "to_node": 3,
+      "to_port": 1
+    },
+    {
+      "from_node": 1,
+      "from_port": 1,
+      "id": 3,
+      "to_node": 4,
+      "to_port": 1
+    },
+    {
+      "from_node": 3,
+      "from_port": 0,
+      "id": 4,
+      "to_node": 4,
+      "to_port": 0
+    },
+    {
+      "from_node": 4,
+      "from_port": 2,
+      "id": 5,
+      "to_node": 5,
+      "to_port": 0
+    },
+    {
+      "from_node": 5,
+      "from_port": 0,
+      "id": 6,
+      "to_node": 6,
+      "to_port": 0
+    },
+    {
+      "from_node": 6,
+      "from_port": 0,
+      "id": 7,
+      "to_node": 7,
+      "to_port": 0
+    },
+    {
+      "from_node": 7,
+      "from_port": 0,
+      "id": 8,
+      "to_node": 8,
+      "to_port": 0
+    }
+  ],
+  "metadata": {
+    "author": "NodeSynth",
+    "bpm": 120.0,
+    "name": "Filter Bell",
+    "notes": "The oscillator only emits an 8 ms noise click on each note. A near-self-oscillating SVF (resonance 0.99) tuned to the note frequency rings out as the actual tone. The FILTER is the sound source.",
+    "sample_rate_hint": 48000.0
+  },
+  "nodes": [
+    {
+      "id": 1,
+      "params": {
+        "Glide": 0.0,
+        "NumVoices": 3.0
+      },
+      "type": "VoiceAllocator",
+      "x": 60.0,
+      "y": 240.0
+    },
+    {
+      "id": 2,
+      "params": {
+        "Attack": 1.0,
+        "Decay": 8.0,
+        "Release": 8.0,
+        "Sustain": 0.0
+      },
+      "per_voice": true,
+      "type": "ADSR",
+      "x": 320.0,
+      "y": 60.0
+    },
+    {
+      "id": 3,
+      "params": {
+        "Amplitude": 0.30000001192092896,
+        "Frequency": 440.0,
+        "Shape": 4.0
+      },
+      "per_voice": true,
+      "type": "Oscillator",
+      "x": 320.0,
+      "y": 240.0
+    },
+    {
+      "id": 4,
+      "params": {
+        "Cutoff": 1000.0,
+        "Resonance": 0.9900000095367432
+      },
+      "per_voice": true,
+      "type": "SVF",
+      "x": 580.0,
+      "y": 240.0
+    },
+    {
+      "id": 5,
+      "params": {
+        "Gain": 0.14000000059604645
+      },
+      "type": "Gain",
+      "x": 840.0,
+      "y": 240.0
+    },
+    {
+      "id": 6,
+      "params": {
+        "Damping": 0.20000000298023224,
+        "RoomSize": 0.9200000166893005,
+        "Wet": 0.6000000238418579
+      },
+      "type": "Reverb",
+      "x": 1080.0,
+      "y": 240.0
+    },
+    {
+      "id": 7,
+      "params": {},
+      "type": "Meter",
+      "x": 1320.0,
+      "y": 240.0
+    },
+    {
+      "id": 8,
+      "params": {},
+      "type": "Output",
+      "x": 1560.0,
+      "y": 240.0
+    }
+  ],
+  "version": 1
+}

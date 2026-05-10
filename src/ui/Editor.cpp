@@ -22,6 +22,7 @@
 #include "dsp/Sequencer.h"
 #include "dsp/SidPlayer.h"
 #include "dsp/Svf.h"
+#include "dsp/WavetableOscillator.h"
 #include "dsp/Vca.h"
 #include "midi/MidiDeviceManager.h"
 #include "ui/AdsrUI.h"
@@ -32,6 +33,7 @@
 #include "ui/ScopeUI.h"
 #include "ui/SequencerUI.h"
 #include "ui/SidPlayerUI.h"
+#include "ui/WavetableUI.h"
 
 namespace ed = ax::NodeEditor;
 
@@ -939,7 +941,15 @@ namespace NodeSynth
 					if (ImGui::SmallButton("..."))
 					{
 						nfdu8char_t* OutPath = nullptr;
+						// Filter dispatch by node type — each node that exposes
+						// a String file-picker param gets its own extension(s).
+						const char* TypeName = Rec->Node->GetTypeName();
 						nfdu8filteritem_t Filter[1] = { { "SID Tune", "sid" } };
+						if (TypeName != nullptr
+							&& std::strcmp(TypeName, "WavetableOscillator") == 0)
+						{
+							Filter[0] = { "Wavetable WAV", "wav" };
+						}
 						nfdopendialogu8args_t Args = {};
 						Args.filterList = Filter;
 						Args.filterCount = 1;
@@ -1048,6 +1058,10 @@ namespace NodeSynth
 		if (auto* Sid = dynamic_cast<FSidPlayer*>(Rec->Node.get()))
 		{
 			DrawSidPlayerUI(*Sid);
+		}
+		if (auto* Wt = dynamic_cast<FWavetableOscillator*>(Rec->Node.get()))
+		{
+			DrawWavetableUI(*Wt);
 		}
 	}
 
