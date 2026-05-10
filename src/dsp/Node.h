@@ -23,6 +23,11 @@ namespace NodeSynth
 	using FNodeId = uint64_t;
 	using FLinkId = uint64_t;
 
+	// Mirrors FVoiceAllocator::MaxVoices. Lives here too so opt-in
+	// per-voice live-value arrays in DSP nodes can be sized at compile
+	// time without including the voice allocator header.
+	inline constexpr int32_t LiveMaxVoices = 8;
+
 	enum class EPortType : uint8_t
 	{
 		Audio,
@@ -68,6 +73,19 @@ namespace NodeSynth
 		// Save/load still round-trips it. Use for params that have a custom UI
 		// (e.g. the sequencer's per-step grid) so they don't appear twice.
 		bool bHidden = false;
+		// If non-negative, the input port index whose Control buffer overrides
+		// this param at audio rate. The property panel uses this to (a) detect
+		// whether the param is currently being modulated and disable the
+		// slider, and (b) display the live effective value via
+		// GetLiveParamValue(). Defaults to -1 (no Control input).
+		int32_t ControlInputIndex = -1;
+		// When true, the property panel renders this Float param as an
+		// ImGui::DragFloat (typeable number with drag-to-scrub) instead of
+		// the bar-style ImGui::SliderFloat. Use for params whose value is
+		// arbitrary (Constant, Scale endpoints) where typing the exact
+		// number is the natural workflow. Sliders are still the right call
+		// for bounded musical params like cutoff or attack-ms.
+		bool bUseInputBox = false;
 	};
 
 	struct FProcessContext
@@ -89,6 +107,29 @@ namespace NodeSynth
 
 		virtual float GetParamValue(uint32_t Index) const { (void)Index; return 0.0f; }
 		virtual void SetParamValue(uint32_t Index, float Value) { (void)Index; (void)Value; }
+
+		// Like GetParamValue, but returns the most recently computed effective
+		// value when a Control input is overriding the param. Defaults to
+		// GetParamValue — nodes that want their property-panel sliders to
+		// reflect modulation override this and write the last block's value
+		// to a small atomic at the end of Process. Read on the UI thread once
+		// per frame; cost is negligible.
+		virtual float GetLiveParamValue(uint32_t Index) const { return GetParamValue(Index); }
+
+		// For per-voice nodes only. Compile sets this on every clone to point
+		// at the master node (the one held by the UI-thread FNodeRecord). The
+		// audio thread runs Process on the clones, never on the master, so
+		// any live-display state (e.g. FOscillator::LastFrequency) the master
+		// holds would never update. Opt-in nodes write their per-voice live
+		// values into MasterMirror's per-voice arrays indexed by VoiceIndex.
+		// Master nodes leave MasterMirror null; the default Clone in
+		// NodeRegistry.cpp sets it on each clone.
+		INode* MasterMirror = nullptr;
+
+		// Voice index for per-voice clones, set by Compile (0..MaxVoices-1).
+		// Master / mono nodes leave it at 0 — they always write slot 0 of
+		// their own live-value arrays.
+		int32_t VoiceIndex = 0;
 
 		// String-kind param accessors. Default implementations return empty
 		// / no-op so nodes that don't expose any String params don't need to

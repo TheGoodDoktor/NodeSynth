@@ -38,16 +38,26 @@ namespace NodeSynth
 
 		std::vector<FParamInfo> GetParamInfos() const override
 		{
+			auto MakeEndpoint = [](const char* Name, float Default, const char* Desc)
+			{
+				FParamInfo P{};
+				P.Name = Name;
+				P.MinValue = -20000.0f;
+				P.MaxValue = 20000.0f;
+				P.DefaultValue = Default;
+				P.Kind = EParamKind::Float;
+				P.Description = Desc;
+				P.bUseInputBox = true;
+				return P;
+			};
 			return
 			{
-				{ "InMin",  -10.0f, 10.0f, -1.0f, false, EParamKind::Float, {},
-					"Lower bound of the input range." },
-				{ "InMax",  -10.0f, 10.0f,  1.0f, false, EParamKind::Float, {},
-					"Upper bound of the input range." },
-				{ "OutMin", -10.0f, 10.0f,  0.0f, false, EParamKind::Float, {},
-					"Lower bound of the output range." },
-				{ "OutMax", -10.0f, 10.0f,  1.0f, false, EParamKind::Float, {},
-					"Upper bound of the output range." },
+				MakeEndpoint("InMin", -1.0f,
+					"Lower bound of the input range.\n"
+					"Drag to scrub; double-click or Ctrl+click to type."),
+				MakeEndpoint("InMax",  1.0f, "Upper bound of the input range."),
+				MakeEndpoint("OutMin", 0.0f, "Lower bound of the output range."),
+				MakeEndpoint("OutMax", 1.0f, "Upper bound of the output range."),
 			};
 		}
 

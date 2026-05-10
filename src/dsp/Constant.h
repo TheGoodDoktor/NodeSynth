@@ -33,8 +33,18 @@ namespace NodeSynth
 
 		std::vector<FParamInfo> GetParamInfos() const override
 		{
-			return { { "Value", -10.0f, 10.0f, 0.0f, false, EParamKind::Float, {},
-				"Constant value emitted continuously on the output." } };
+			FParamInfo P{};
+			P.Name = "Value";
+			P.MinValue = -20000.0f;
+			P.MaxValue = 20000.0f;
+			P.DefaultValue = 0.0f;
+			P.bLogarithmic = false;
+			P.Kind = EParamKind::Float;
+			P.Description =
+				"Constant value emitted continuously on the output.\n"
+				"Drag to scrub; double-click or Ctrl+click to type.";
+			P.bUseInputBox = true;
+			return { P };
 		}
 
 		float GetParamValue(uint32_t Index) const override

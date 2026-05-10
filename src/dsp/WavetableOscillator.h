@@ -75,16 +75,19 @@ namespace NodeSynth
 					"surfaces a dropdown of bundled wavetables.",
 					/* bHidden */ true },
 				{ "Frequency", 20.0f, 20000.0f, 440.0f, true, EParamKind::Float, {},
-					"Pitch in Hz. The Freq Control input overrides this when connected." },
+					"Pitch in Hz. The Freq Control input overrides this when connected.",
+					/* bHidden */ false, /* ControlInputIndex */ Input_Frequency },
 				{ "Position",  0.0f, 1.0f, 0.0f, false, EParamKind::Float, {},
 					"Frame index normalised to 0..1. The Pos Control input overrides\n"
-					"this when connected." },
+					"this when connected.",
+					/* bHidden */ false, /* ControlInputIndex */ Input_Position },
 				{ "Detune",  -100.0f, 100.0f, 0.0f, false, EParamKind::Float, {},
 					"Pitch trim in cents." },
 				{ "Phase",     0.0f, 1.0f, 0.0f, false, EParamKind::Float, {},
 					"Initial phase offset 0..1. Applied at Prepare()." },
 				{ "Amplitude", 0.0f, 1.0f, 0.5f, false, EParamKind::Float, {},
-					"Output level 0..1. The Amp Control input overrides this when connected." },
+					"Output level 0..1. The Amp Control input overrides this when connected.",
+					/* bHidden */ false, /* ControlInputIndex */ Input_Amplitude },
 			};
 		}
 
@@ -98,6 +101,30 @@ namespace NodeSynth
 				case Param_Phase:     return PhaseOffset.load(std::memory_order_relaxed);
 				case Param_Amplitude: return Amplitude.load(std::memory_order_relaxed);
 				default:              return 0.0f;
+			}
+		}
+
+		float GetLiveParamValue(uint32_t Index) const override
+		{
+			if (Index != Param_Frequency && Index != Param_Position
+				&& Index != Param_Amplitude)
+			{
+				return GetParamValue(Index);
+			}
+			int32_t Best = 0;
+			float BestAmp = LastAmplitudePerVoice[0].load(std::memory_order_relaxed);
+			for (int32_t V = 1; V < LiveMaxVoices; ++V)
+			{
+				const float A = LastAmplitudePerVoice[V].load(std::memory_order_relaxed);
+				if (A > BestAmp) { BestAmp = A; Best = V; }
+			}
+			if (BestAmp <= 1e-3f) { return GetParamValue(Index); }
+			switch (Index)
+			{
+				case Param_Frequency: return LastFrequencyPerVoice[Best].load(std::memory_order_relaxed);
+				case Param_Position:  return LastPositionPerVoice[Best].load(std::memory_order_relaxed);
+				case Param_Amplitude: return BestAmp;
+				default:              return GetParamValue(Index);
 			}
 		}
 
@@ -275,6 +302,25 @@ namespace NodeSynth
 				if (Phase >= 1.0) { Phase -= std::floor(Phase); }
 			}
 			LastMipIndex = MipNow;
+
+			// Latch the last sample's effective Frequency / Position /
+			// Amplitude for the property panel's live readout. Per-voice
+			// clones mirror to MasterMirror since the UI reads the master
+			// node, which never has Process called on it.
+			const uint32_t Last = (Ctx.BlockSize > 0) ? Ctx.BlockSize - 1u : 0u;
+			const float LiveFreq =
+				((FreqIn != nullptr) ? FreqIn[Last] : FreqParam) * DetuneRatio;
+			const float LivePos = (PosIn != nullptr) ? PosIn[Last] : PosParam;
+			const float LiveAmp = (AmpIn != nullptr) ? AmpIn[Last] : AmpParam;
+			// Each clone writes its own VoiceIndex slot of the master's
+			// per-voice arrays. UI scans for loudest voice — no race.
+			auto* Target = (MasterMirror != nullptr)
+				? static_cast<FWavetableOscillator*>(MasterMirror) : this;
+			const int32_t Slot = (VoiceIndex >= 0 && VoiceIndex < LiveMaxVoices)
+				? VoiceIndex : 0;
+			Target->LastFrequencyPerVoice[Slot].store(LiveFreq, std::memory_order_relaxed);
+			Target->LastPositionPerVoice[Slot].store(LivePos, std::memory_order_relaxed);
+			Target->LastAmplitudePerVoice[Slot].store(LiveAmp, std::memory_order_relaxed);
 		}
 
 		// Per-voice cloning: share the loaded wavetable pointer across
@@ -293,6 +339,9 @@ namespace NodeSynth
 			C->Detune.store(Detune.load(std::memory_order_relaxed));
 			C->PhaseOffset.store(PhaseOffset.load(std::memory_order_relaxed));
 			C->Amplitude.store(Amplitude.load(std::memory_order_relaxed));
+			// See NodeRegistry's default Clone — clones mirror Last* atomics
+			// back to the master so per-voice nodes' UI live readout works.
+			C->MasterMirror = const_cast<FWavetableOscillator*>(this);
 			return C;
 		}
 
@@ -343,6 +392,12 @@ namespace NodeSynth
 		std::atomic<float> Detune{ 0.0f };
 		std::atomic<float> PhaseOffset{ 0.0f };
 		std::atomic<float> Amplitude{ 0.5f };
+		// Per-voice live values. Each clone writes its own slot; the master's
+		// GetLiveParamValue scans for the loudest voice (Amplitude proxy)
+		// and reads from there. Mono nodes use slot 0.
+		std::atomic<float> LastFrequencyPerVoice[LiveMaxVoices] = {};
+		std::atomic<float> LastPositionPerVoice[LiveMaxVoices] = {};
+		std::atomic<float> LastAmplitudePerVoice[LiveMaxVoices] = {};
 
 		double Phase = 0.0;
 		double SampleRate = 48000.0;

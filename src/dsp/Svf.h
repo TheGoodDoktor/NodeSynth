@@ -70,9 +70,11 @@ namespace NodeSynth
 			return
 			{
 				{ "Cutoff",    20.0f, 20000.0f, 1000.0f, true,  EParamKind::Float, {},
-					"Filter cutoff frequency in Hz. Clamped to a safe range every sample." },
+					"Filter cutoff frequency in Hz. Clamped to a safe range every sample.",
+					/* bHidden */ false, /* ControlInputIndex */ Input_Cutoff },
 				{ "Resonance", 0.0f,  1.0f,     0.2f,   false, EParamKind::Float, {},
-					"Resonance / Q. 1.0 self-oscillates cleanly." },
+					"Resonance / Q. 1.0 self-oscillates cleanly.",
+					/* bHidden */ false, /* ControlInputIndex */ Input_Resonance },
 			};
 		}
 
@@ -84,6 +86,27 @@ namespace NodeSynth
 				case Param_Resonance: return Resonance.load(std::memory_order_relaxed);
 				default: return 0.0f;
 			}
+		}
+
+		float GetLiveParamValue(uint32_t Index) const override
+		{
+			if (Index != Param_Cutoff && Index != Param_Resonance)
+			{
+				return GetParamValue(Index);
+			}
+			// Activity proxy is the per-voice audio level — pick the voice
+			// receiving audio. Mono master writes to slot 0.
+			int32_t Best = 0;
+			float BestLevel = LastAudioLevelPerVoice[0].load(std::memory_order_relaxed);
+			for (int32_t V = 1; V < LiveMaxVoices; ++V)
+			{
+				const float L = LastAudioLevelPerVoice[V].load(std::memory_order_relaxed);
+				if (L > BestLevel) { BestLevel = L; Best = V; }
+			}
+			if (BestLevel <= 1e-4f) { return GetParamValue(Index); }
+			return (Index == Param_Cutoff)
+				? LastCutoffPerVoice[Best].load(std::memory_order_relaxed)
+				: LastResonancePerVoice[Best].load(std::memory_order_relaxed);
 		}
 
 		void SetParamValue(uint32_t Index, float Value) override
@@ -127,6 +150,7 @@ namespace NodeSynth
 			const float CutoffParam = Cutoff.load(std::memory_order_relaxed);
 			const float ResParam = Resonance.load(std::memory_order_relaxed);
 			const float CutoffMax = static_cast<float>(0.49 * SampleRate);
+			float MaxAbsAudio = 0.0f;  // activity proxy for the live-mirror gate
 
 			for (uint32_t I = 0; I < Ctx.BlockSize; ++I)
 			{
@@ -148,6 +172,8 @@ namespace NodeSynth
 				{
 					Res = 1.0f;
 				}
+				const float AbsIn = std::fabs(Audio[I]);
+				if (AbsIn > MaxAbsAudio) { MaxAbsAudio = AbsIn; }
 
 				// TPT coefficients: g = tan(pi * fc / fs), k = 2 * (1 - res) gives
 				// k=2 at res=0 (heavy damping), k=0 at res=1 (self-oscillation).
@@ -168,11 +194,33 @@ namespace NodeSynth
 				BP[I] = V1;
 				HP[I] = V0 - K * V1 - V2;
 			}
+
+			// Latch the last sample's effective Cutoff / Resonance for the
+			// property panel's live readout. Per-voice clones mirror to
+			// MasterMirror so the UI's master-held node updates too.
+			const uint32_t Last = (Ctx.BlockSize > 0) ? Ctx.BlockSize - 1u : 0u;
+			const float LiveCutoff = (CutoffBuf != nullptr) ? CutoffBuf[Last] : CutoffParam;
+			const float LiveRes    = (ResBuf    != nullptr) ? ResBuf[Last]    : ResParam;
+			// Each clone writes to its own VoiceIndex slot of the master's
+			// per-voice arrays. The UI's GetLiveParamValue picks the voice
+			// with the highest audio level. No race.
+			auto* Target = (MasterMirror != nullptr)
+				? static_cast<FSvf*>(MasterMirror) : this;
+			const int32_t Slot = (VoiceIndex >= 0 && VoiceIndex < LiveMaxVoices)
+				? VoiceIndex : 0;
+			Target->LastCutoffPerVoice[Slot].store(LiveCutoff, std::memory_order_relaxed);
+			Target->LastResonancePerVoice[Slot].store(LiveRes, std::memory_order_relaxed);
+			Target->LastAudioLevelPerVoice[Slot].store(MaxAbsAudio, std::memory_order_relaxed);
 		}
 
 	private:
 		std::atomic<float> Cutoff{ 1000.0f };
 		std::atomic<float> Resonance{ 0.2f };
+		// Per-voice live values. Each clone writes its own slot;
+		// GetLiveParamValue picks the voice with the highest audio level.
+		std::atomic<float> LastCutoffPerVoice[LiveMaxVoices] = {};
+		std::atomic<float> LastResonancePerVoice[LiveMaxVoices] = {};
+		std::atomic<float> LastAudioLevelPerVoice[LiveMaxVoices] = {};
 		double SampleRate = 48000.0;
 		float Ic1Eq = 0.0f;
 		float Ic2Eq = 0.0f;

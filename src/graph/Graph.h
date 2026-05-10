@@ -156,6 +156,12 @@ namespace NodeSynth
 		const std::vector<FLink>& GetLinks() const { return Links; }
 		FNodeRecord* FindNode(FNodeId Id);
 
+		// True if any link terminates at (Node, Port). Used by the property
+		// panel to detect whether a Control input is being driven by an
+		// upstream signal so the corresponding param slider can switch to a
+		// live read-only display.
+		bool HasIncomingLink(FNodeId Node, uint32_t Port) const;
+
 		// Toggles the per-voice flag on a node. Returns false (and leaves the
 		// flag untouched) if the node id is unknown or the node's Clone() is
 		// nullptr (non-cloneable types like MIDI input or virtual keyboard).

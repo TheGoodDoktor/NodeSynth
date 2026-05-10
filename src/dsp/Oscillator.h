@@ -77,9 +77,11 @@ namespace NodeSynth
 					{ "Sine", "Saw", "Square", "Triangle", "Noise" },
 					"Waveform. Saw / Square / Triangle use PolyBLEP to suppress aliasing; Noise is white per-sample." },
 				{ "Frequency", 20.0f, 20000.0f, 440.0f, true,  EParamKind::Float, {},
-					"Pitch in Hz. The Freq Control input overrides this when connected." },
+					"Pitch in Hz. The Freq Control input overrides this when connected.",
+					/* bHidden */ false, /* ControlInputIndex */ Input_Frequency },
 				{ "Amplitude", 0.0f,  1.0f,     0.3f,  false, EParamKind::Float, {},
-					"Output level (0..1). The Amp Control input overrides this when connected. Smoothed." },
+					"Output level (0..1). The Amp Control input overrides this when connected. Smoothed.",
+					/* bHidden */ false, /* ControlInputIndex */ Input_Amplitude },
 			};
 		}
 
@@ -92,6 +94,30 @@ namespace NodeSynth
 				case Param_Amplitude: return Amplitude.load(std::memory_order_relaxed);
 				default:              return 0.0f;
 			}
+		}
+
+		float GetLiveParamValue(uint32_t Index) const override
+		{
+			if (Index != Param_Frequency && Index != Param_Amplitude)
+			{
+				return GetParamValue(Index);
+			}
+			// Scan per-voice slots for the loudest voice — that's the one
+			// the user is hearing most prominently. Mono master keeps slot 0
+			// and the others stay at zero, so the scan also works there.
+			int32_t Best = 0;
+			float BestAmp = LastAmplitudePerVoice[0].load(std::memory_order_relaxed);
+			for (int32_t V = 1; V < LiveMaxVoices; ++V)
+			{
+				const float A = LastAmplitudePerVoice[V].load(std::memory_order_relaxed);
+				if (A > BestAmp) { BestAmp = A; Best = V; }
+			}
+			if (Index == Param_Amplitude) { return BestAmp; }
+			// Frequency: when the loudest voice is silent, fall back to the
+			// param value so the slider doesn't show stale freq from a long-
+			// dead note.
+			if (BestAmp <= 1e-3f) { return Frequency.load(std::memory_order_relaxed); }
+			return LastFrequencyPerVoice[Best].load(std::memory_order_relaxed);
 		}
 
 		void SetParamValue(uint32_t Index, float Value) override
@@ -152,6 +178,25 @@ namespace NodeSynth
 				return (AmpCv != nullptr) ? AmpCv[I] : AmpSmoother.Tick();
 			};
 
+			// Snapshots the effective Frequency / Amplitude at the last
+			// sample of the block, written into the master's per-voice
+			// arrays at our own VoiceIndex. The UI scans all voices for the
+			// loudest one and reads from its slot — no race on a shared
+			// atomic, no last-writer-wins instability.
+			auto LatchLive = [&]()
+			{
+				const uint32_t Last = (Ctx.BlockSize > 0) ? Ctx.BlockSize - 1u : 0u;
+				const float FreqLast = (FreqCv != nullptr) ? FreqCv[Last] : FreqParam;
+				const float AmpLast = (AmpCv != nullptr) ? AmpCv[Last]
+					: Amplitude.load(std::memory_order_relaxed);
+				auto* Target = (MasterMirror != nullptr)
+					? static_cast<FOscillator*>(MasterMirror) : this;
+				const int32_t Slot = (VoiceIndex >= 0 && VoiceIndex < LiveMaxVoices)
+					? VoiceIndex : 0;
+				Target->LastFrequencyPerVoice[Slot].store(FreqLast, std::memory_order_relaxed);
+				Target->LastAmplitudePerVoice[Slot].store(AmpLast, std::memory_order_relaxed);
+			};
+
 			// Sine keeps radians for readability; others run on normalised phase [0, 1).
 			if (S == EOscShape::Sine)
 			{
@@ -166,6 +211,7 @@ namespace NodeSynth
 						SinePhase -= TwoPi;
 					}
 				}
+				LatchLive();
 				return;
 			}
 
@@ -181,6 +227,7 @@ namespace NodeSynth
 					const float Sample = static_cast<float>(static_cast<int32_t>(X)) * (1.0f / 2147483648.0f);
 					Out[I] = AmpAt(I) * Sample;
 				}
+				LatchLive();
 				return;
 			}
 
@@ -226,6 +273,7 @@ namespace NodeSynth
 					Phase -= 1.0;
 				}
 			}
+			LatchLive();
 		}
 
 	private:
@@ -250,6 +298,11 @@ namespace NodeSynth
 		std::atomic<uint32_t> Shape{ static_cast<uint32_t>(EOscShape::Sine) };
 		std::atomic<float> Frequency{ 440.0f };
 		std::atomic<float> Amplitude{ 0.3f };
+		// Per-voice last-sample Frequency / Amplitude. Each clone writes its
+		// own VoiceIndex slot; the master's GetLiveParamValue scans for the
+		// loudest voice and returns its values. Mono nodes use slot 0.
+		std::atomic<float> LastFrequencyPerVoice[LiveMaxVoices] = {};
+		std::atomic<float> LastAmplitudePerVoice[LiveMaxVoices] = {};
 		FOnePoleSmoother AmpSmoother;
 		double Phase = 0.0;         // normalised [0, 1) for Saw/Square/Triangle
 		double SinePhase = 0.0;     // radians, Sine only

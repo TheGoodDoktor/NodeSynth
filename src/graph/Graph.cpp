@@ -155,6 +155,15 @@ namespace NodeSynth
 		return (It != Nodes.end()) ? &It->second : nullptr;
 	}
 
+	bool FGraphModel::HasIncomingLink(FNodeId Node, uint32_t Port) const
+	{
+		for (const FLink& L : Links)
+		{
+			if (L.ToNode == Node && L.ToPort == Port) { return true; }
+		}
+		return false;
+	}
+
 	bool FGraphModel::SetNodePerVoice(FNodeId Id, bool bPerVoice)
 	{
 		auto It = Nodes.find(Id);
@@ -598,6 +607,9 @@ namespace NodeSynth
 					VoiceClones.clear();
 					break;
 				}
+				// Stamp the clone's voice index so its Process knows which
+				// slot of the master's live-value arrays to write.
+				Clone->VoiceIndex = static_cast<int32_t>(V);
 				VoiceClones.push_back(std::move(Clone));
 			}
 			if (!VoiceClones.empty())

@@ -429,6 +429,11 @@ namespace NodeSynth
 				}
 			}
 		}
+		// Live-display mirror: set on the clone so its Process can mirror
+		// LastXxx atomics back to the master, which is what the UI's
+		// property panel reads. The master's MasterMirror stays null (it
+		// IS the master).
+		Cloned->MasterMirror = const_cast<INode*>(static_cast<const INode*>(this));
 		return Cloned;
 	}
 }

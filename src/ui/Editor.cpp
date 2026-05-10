@@ -858,7 +858,16 @@ namespace NodeSynth
 				continue;  // hidden params (e.g. sequencer grid cells) are
 				           // surfaced via custom UI hooks below.
 			}
-			float Value = Rec->Node->GetParamValue(I);
+			// "Modulated" = a Control input is wired to this param's CV port.
+			// In that state the slider becomes a read-only live readout of the
+			// node's last computed value; user input is disabled because the
+			// buffer overrides the param atomic anyway.
+			const bool bModulated = (Info.ControlInputIndex >= 0)
+				&& Model.HasIncomingLink(Rec->Id,
+					static_cast<uint32_t>(Info.ControlInputIndex));
+			float Value = bModulated
+				? Rec->Node->GetLiveParamValue(I)
+				: Rec->Node->GetParamValue(I);
 
 			switch (Info.Kind)
 			{
@@ -966,8 +975,26 @@ namespace NodeSynth
 				case EParamKind::Float:
 				default:
 				{
-					const ImGuiSliderFlags Flags = Info.bLogarithmic ? ImGuiSliderFlags_Logarithmic : 0;
-					if (ImGui::SliderFloat(Info.Name.c_str(), &Value, Info.MinValue, Info.MaxValue, "%.3f", Flags))
+					ImGuiSliderFlags Flags = Info.bLogarithmic ? ImGuiSliderFlags_Logarithmic : 0;
+					if (bModulated) { Flags |= ImGuiSliderFlags_NoInput; }
+					bool bChanged;
+					if (Info.bUseInputBox)
+					{
+						// DragFloat with a per-pixel speed scaled to the
+						// param's range — small ranges nudge in 0.001
+						// increments, big ranges (filter Hz) move faster.
+						const float Range = Info.MaxValue - Info.MinValue;
+						const float Speed = (Range > 0.0f)
+							? std::max(Range / 400.0f, 0.001f) : 0.01f;
+						bChanged = ImGui::DragFloat(Info.Name.c_str(), &Value, Speed,
+							Info.MinValue, Info.MaxValue, "%.3f", Flags);
+					}
+					else
+					{
+						bChanged = ImGui::SliderFloat(Info.Name.c_str(), &Value,
+							Info.MinValue, Info.MaxValue, "%.3f", Flags);
+					}
+					if (bChanged)
 					{
 						WriteParam(I, Value);
 					}
