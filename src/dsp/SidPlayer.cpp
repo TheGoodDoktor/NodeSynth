@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstring>
 
+#include "io/SidBrowser.h"
 #include "sid/PsidLoader.h"
 #include "sid/SidEmulator.h"
 #include "sid/SidRegisters.h"
@@ -96,8 +97,16 @@ namespace NodeSynth
 	{
 		std::vector<FParamInfo> Infos;
 		Infos.reserve(Param_COUNT);
-		Infos.push_back({ "File", 0.0f, 0.0f, 0.0f, false, EParamKind::String, {},
-			"Path to a .sid file. Loaded on the UI thread; the audio thread sees the new tune via an atomic snapshot swap." });
+		{
+			FParamInfo File{};
+			File.Name = "File";
+			File.Kind = EParamKind::String;
+			File.Description =
+				"Path to a .sid file (relative to sidfiles/ or absolute).\n"
+				"The property panel surfaces a dropdown of bundled tunes.";
+			File.bHidden = true;  // surfaced by the custom UI dropdown
+			Infos.push_back(std::move(File));
+		}
 		Infos.push_back({ "Subtune", 1.0f, 32.0f, 1.0f, false, EParamKind::Float, {},
 			"1-based subtune index. Out-of-range values are clamped to the file's actual subtune count." });
 		Infos.push_back({ "Region", 0.0f, 1.0f, 0.0f, false, EParamKind::Choice,
@@ -381,8 +390,15 @@ namespace NodeSynth
 			return;
 		}
 
+		// Resolve relative-to-bundled / user paths into an absolute path
+		// the SID loader can open. Falls through to the stored string
+		// (which the loader will then reject) so the error message points
+		// at what the user actually typed.
+		std::filesystem::path Resolved = ResolveSidPath(Path);
+		const std::string LoadPath = Resolved.empty() ? Path : Resolved.string();
+
 		ELoadError Err = ELoadError::None;
-		auto Loaded = LoadSidFile(Path, Err);
+		auto Loaded = LoadSidFile(LoadPath, Err);
 		if (!Loaded)
 		{
 			const char* Msg = "Unknown load error";

@@ -240,6 +240,30 @@ if(EXISTS "${NODESYNTH_WAVETABLE_SOURCE_DIR}")
     endif()
 endif()
 
+# ---- Bundled SID tunes -----------------------------------------------------
+# Same pattern as presets/wavetables — mirror the source-tree sidfiles/
+# folder next to the running exe so the SidPlayer dropdown sees them.
+set(NODESYNTH_SIDFILES_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/sidfiles")
+if(EXISTS "${NODESYNTH_SIDFILES_SOURCE_DIR}")
+    if(APPLE)
+        file(GLOB_RECURSE NODESYNTH_SIDFILES_FILES CONFIGURE_DEPENDS
+            "${NODESYNTH_SIDFILES_SOURCE_DIR}/*.sid")
+        foreach(SID_FILE IN LISTS NODESYNTH_SIDFILES_FILES)
+            file(RELATIVE_PATH SID_REL "${NODESYNTH_SIDFILES_SOURCE_DIR}" "${SID_FILE}")
+            get_filename_component(SID_REL_DIR "${SID_REL}" DIRECTORY)
+            target_sources(nodesynth PRIVATE "${SID_FILE}")
+            set_source_files_properties("${SID_FILE}" PROPERTIES
+                MACOSX_PACKAGE_LOCATION "Resources/sidfiles/${SID_REL_DIR}")
+        endforeach()
+    else()
+        add_custom_command(TARGET nodesynth POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${NODESYNTH_SIDFILES_SOURCE_DIR}"
+                "$<TARGET_FILE_DIR:nodesynth>/sidfiles"
+            COMMENT "Copying bundled SID tunes next to nodesynth binary")
+    endif()
+endif()
+
 # ---- Tests (Catch2 v3) ------------------------------------------------------
 option(NODESYNTH_BUILD_TESTS "Build NodeSynth unit tests" ON)
 if(NODESYNTH_BUILD_TESTS)
@@ -265,6 +289,7 @@ if(NODESYNTH_BUILD_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/SidPlayer.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/Wavetable.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/io/PresetBrowser.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/io/SidBrowser.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/io/WavetableBrowser.cpp
     )
     target_include_directories(nodesynth_tests PRIVATE src "${chips_SOURCE_DIR}/chips")

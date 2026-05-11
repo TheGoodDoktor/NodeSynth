@@ -1,13 +1,105 @@
 #include "ui/SidPlayerUI.h"
 
 #include <imgui.h>
+#include <nfd.h>
+
+#include <algorithm>
+#include <cstring>
+#include <filesystem>
 
 #include "dsp/SidPlayer.h"
+#include "io/SidBrowser.h"
 
 namespace NodeSynth
 {
+	namespace
+	{
+		// Cached library, scanned on first use. Refresh button (rare)
+		// rescans. Bundled + user dirs don't change at runtime.
+		FSidLibrary& Library()
+		{
+			static FSidLibrary L = BuildSidLibrary(GetBundledSidDir(), GetUserSidDir());
+			return L;
+		}
+
+		void RefreshLibrary()
+		{
+			Library() = BuildSidLibrary(GetBundledSidDir(), GetUserSidDir());
+		}
+
+		std::string PreviewLabel(const std::string& Stored)
+		{
+			if (Stored.empty()) { return "(none)"; }
+			const std::filesystem::path P(Stored);
+			const std::string Stem = P.stem().string();
+			return Stem.empty() ? std::string("(invalid)") : Stem;
+		}
+	}
+
 	void DrawSidPlayerUI(FSidPlayer& Player)
 	{
+		// --- Tune picker dropdown ----------------------------------------
+		const std::string Stored = Player.GetParamString(FSidPlayer::Param_File);
+		const std::string Preview = PreviewLabel(Stored);
+
+		ImGui::TextDisabled("SID Tune");
+		ImGui::SetNextItemWidth(-FLT_MIN - 70.0f);
+		if (ImGui::BeginCombo("##sid_picker", Preview.c_str()))
+		{
+			const FSidLibrary& Lib = Library();
+			if (Lib.IsEmpty())
+			{
+				ImGui::TextDisabled("(no .sid files in sidfiles/)");
+			}
+			for (const FSidCategory& Cat : Lib.Categories)
+			{
+				if (!Cat.Name.empty())
+				{
+					ImGui::Spacing();
+					ImGui::TextDisabled("%s", Cat.Name.c_str());
+				}
+				for (const FSidEntry& E : Cat.Entries)
+				{
+					const std::string RelStr = E.RelativePath.generic_string();
+					const bool bSelected = (Stored == RelStr);
+					ImGui::PushID(RelStr.c_str());
+					if (ImGui::Selectable(E.DisplayName.c_str(), bSelected))
+					{
+						Player.SetParamString(FSidPlayer::Param_File, RelStr);
+					}
+					if (bSelected) { ImGui::SetItemDefaultFocus(); }
+					ImGui::PopID();
+				}
+			}
+			ImGui::EndCombo();
+		}
+
+		// "..." browse button — pick a .sid outside the bundled dirs.
+		// Stores an absolute path; the patch won't be portable but the
+		// user can still audition arbitrary files.
+		ImGui::SameLine();
+		if (ImGui::SmallButton("..."))
+		{
+			nfdu8char_t* OutPath = nullptr;
+			nfdu8filteritem_t Filter[1] = { { "SID Tune", "sid" } };
+			nfdopendialogu8args_t Args = {};
+			Args.filterList = Filter;
+			Args.filterCount = 1;
+			const nfdresult_t Result = NFD_OpenDialogU8_With(&OutPath, &Args);
+			if (Result == NFD_OKAY && OutPath)
+			{
+				Player.SetParamString(FSidPlayer::Param_File, OutPath);
+				NFD_FreePathU8(OutPath);
+			}
+		}
+
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Refresh"))
+		{
+			RefreshLibrary();
+		}
+
+		// --- Status (existing block) -------------------------------------
 		const FSidPlayer::FLoadStatus Status = Player.GetStatus();
 
 		ImGui::Separator();
@@ -54,10 +146,7 @@ namespace NodeSynth
 		ImGui::Text("Region:   %s", Status.bIsNtsc ? "NTSC" : "PAL");
 		ImGui::Text("Model:    %s", Status.bIs8580 ? "8580" : "6581");
 
-		// Live per-voice gate indicators. Lights up green when the SID's
-		// V*n*_Gate bit is set; gray when off. Useful as a "is it actually
-		// playing" sanity check — silence with all three lit usually means
-		// the audio output isn't wired into the graph.
+		// Live per-voice gate indicators.
 		ImGui::Spacing();
 		ImGui::TextDisabled("Gates:");
 		ImGui::SameLine();
