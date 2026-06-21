@@ -4,6 +4,7 @@
 #include <fstream>
 #include <string>
 
+#include "dsp/internal/SubgraphBoundary.h"
 #include "io/GraphJson.h"
 
 namespace NodeSynth
@@ -116,6 +117,10 @@ namespace NodeSynth
 		{
 			GraphJson::DeserializeNodes(Obj["nodes"], Def.InternalGraph, nullptr);
 		}
+		// Boundary nodes load without ports; push the declared pins onto them
+		// before deserializing links, so boundary-incident links pass the port
+		// type / range checks in FGraphModel::AddLink.
+		SyncSubgraphBoundaries(Def);
 		if (Obj.contains("links"))
 		{
 			GraphJson::DeserializeLinks(Obj["links"], Def.InternalGraph);

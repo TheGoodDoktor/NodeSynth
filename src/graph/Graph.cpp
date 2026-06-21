@@ -4,13 +4,17 @@
 #include <functional>
 #include <map>
 #include <string>
+#include <tuple>
 #include <unordered_set>
 #include <utility>
 
 #include "dsp/MidiCC.h"
+#include "dsp/Subgraph.h"
 #include "dsp/VoiceAllocator.h"
+#include "dsp/internal/SubgraphBoundary.h"
 #include "dsp/internal/VoiceMixer.h"
 #include "graph/EditHistory.h"
+#include "graph/SubgraphDefinition.h"
 
 namespace NodeSynth
 {
@@ -480,14 +484,324 @@ namespace NodeSynth
 		}
 	}
 
+	namespace
+	{
+		bool IsSubgraphInstance(const INode& Node)
+		{
+			return std::string(Node.GetTypeName()) == "Subgraph";
+		}
+
+		// Node types that may not live inside a subgraph: the patch sink, the
+		// voice allocator, and the (deprecated) in-graph note-input types.
+		bool IsForbiddenInSubgraph(const INode& Node)
+		{
+			const std::string T = Node.GetTypeName();
+			return T == "Output" || T == "VoiceAllocator" || T == "MIDI" || T == "VirtualKbd";
+		}
+
+		constexpr size_t MaxSubgraphDepth = 8;
+
+		// DFS over the definition-reference tree. Detects transitive recursion
+		// (a definition that contains itself), depth-limit violations, and
+		// forbidden internal node types. Returns an error string, or empty if
+		// the definition (and everything it nests) is valid.
+		std::string ValidateSubgraphDefinition(const FSubgraphDefinition& Def,
+			std::vector<std::string>& Stack)
+		{
+			for (const std::string& Name : Stack)
+			{
+				if (Name == Def.Name)
+				{
+					return "Subgraph '" + Def.Name + "' is recursive — it transitively "
+						"contains an instance of itself.";
+				}
+			}
+			if (Stack.size() >= MaxSubgraphDepth)
+			{
+				return "Subgraph nesting exceeds the " + std::to_string(MaxSubgraphDepth)
+					+ "-level limit at '" + Def.Name + "'.";
+			}
+
+			Stack.push_back(Def.Name);
+			for (const auto& [Id, Rec] : Def.InternalGraph.GetNodes())
+			{
+				if (!Rec.Node)
+				{
+					continue;
+				}
+				if (IsForbiddenInSubgraph(*Rec.Node))
+				{
+					return "Subgraph '" + Def.Name + "' contains forbidden node type '"
+						+ Rec.Node->GetTypeName() + "'. Subgraphs can't contain the patch "
+						"sink, voice allocator, or note-input nodes.";
+				}
+				if (auto* Sub = dynamic_cast<FSubgraph*>(Rec.Node.get()))
+				{
+					if (Sub->GetDefinition())
+					{
+						std::string Err = ValidateSubgraphDefinition(*Sub->GetDefinition(), Stack);
+						if (!Err.empty())
+						{
+							return Err;
+						}
+					}
+				}
+			}
+			Stack.pop_back();
+			return std::string();
+		}
+
+		// Macro-inlines one FSubgraph instance (SId) into WorkNodes/WorkLinks
+		// following the §1.1 algorithm: clone the internal non-boundary nodes
+		// with fresh ids, rewire internal links, then splice external links
+		// through the boundary pins. The instance's per-voice flag propagates
+		// onto every cloned internal node. Boundary nodes are never cloned —
+		// they exist only to identify pin endpoints.
+		void ExpandOneSubgraph(std::unordered_map<FNodeId, FNodeRecord>& WorkNodes,
+			std::vector<FLink>& WorkLinks, FNodeId SId,
+			FNodeId& NextFreshNode, FLinkId& NextFreshLink)
+		{
+			const FNodeRecord SRec = WorkNodes.at(SId);  // copy — we erase SId below
+			auto* Sub = dynamic_cast<FSubgraph*>(SRec.Node.get());
+			const FSubgraphDefinition& Def = *Sub->GetDefinition();
+			const bool bPerVoice = SRec.bPerVoice;
+
+			// 1. Clone internal non-boundary nodes with fresh ids.
+			std::unordered_map<FNodeId, FNodeId> IdMap;
+			FNodeId InputsId = 0;
+			FNodeId OutputsId = 0;
+			for (const auto& [Iid, Irec] : Def.InternalGraph.GetNodes())
+			{
+				if (!Irec.Node)
+				{
+					continue;
+				}
+				const std::string T = Irec.Node->GetTypeName();
+				if (T == "_SubgraphInputs") { InputsId = Iid; continue; }
+				if (T == "_SubgraphOutputs") { OutputsId = Iid; continue; }
+
+				std::shared_ptr<INode> Clone = Irec.Node->Clone();
+				if (!Clone)
+				{
+					continue;  // validated as cloneable already; defensive
+				}
+				Clone->MasterMirror = nullptr;  // it IS the master in the flat graph
+				const FNodeId Fid = NextFreshNode++;
+				IdMap[Iid] = Fid;
+				WorkNodes.emplace(Fid, FNodeRecord{ Fid, std::move(Clone),
+					Irec.PositionX, Irec.PositionY, bPerVoice || Irec.bPerVoice });
+			}
+
+			// 2. External drivers of the instance's input pins / consumers of
+			// its output pins (from links touching SId in the working graph).
+			std::unordered_map<uint32_t, std::pair<FNodeId, uint32_t>> InputPinDriver;
+			std::vector<std::tuple<uint32_t, FNodeId, uint32_t>> OutputConsumers;
+			for (const FLink& L : WorkLinks)
+			{
+				if (L.ToNode == SId)
+				{
+					InputPinDriver[L.ToPort] = { L.FromNode, L.FromPort };
+				}
+				if (L.FromNode == SId)
+				{
+					OutputConsumers.push_back({ L.FromPort, L.ToNode, L.ToPort });
+				}
+			}
+
+			auto AddLink = [&](FNodeId F, uint32_t Fp, FNodeId T, uint32_t Tp)
+			{
+				WorkLinks.push_back(FLink{ NextFreshLink++, F, Fp, T, Tp });
+			};
+
+			// 3. Walk internal links, classifying each endpoint against the two
+			// boundary nodes.
+			std::unordered_map<uint32_t, std::pair<FNodeId, uint32_t>> OutputPinSource;
+			std::unordered_map<uint32_t, uint32_t> PassthroughOutToIn;
+			for (const FLink& L : Def.InternalGraph.GetLinks())
+			{
+				const bool bFromInputs = (L.FromNode == InputsId);
+				const bool bToOutputs = (L.ToNode == OutputsId);
+				if (!bFromInputs && !bToOutputs)
+				{
+					auto Fit = IdMap.find(L.FromNode);
+					auto Tit = IdMap.find(L.ToNode);
+					if (Fit != IdMap.end() && Tit != IdMap.end())
+					{
+						AddLink(Fit->second, L.FromPort, Tit->second, L.ToPort);
+					}
+				}
+				else if (bFromInputs && !bToOutputs)
+				{
+					// Input pin L.FromPort drives an internal consumer.
+					auto Tit = IdMap.find(L.ToNode);
+					auto Dit = InputPinDriver.find(L.FromPort);
+					if (Tit != IdMap.end() && Dit != InputPinDriver.end())
+					{
+						AddLink(Dit->second.first, Dit->second.second, Tit->second, L.ToPort);
+					}
+				}
+				else if (!bFromInputs && bToOutputs)
+				{
+					// Internal producer feeds output pin L.ToPort.
+					auto Fit = IdMap.find(L.FromNode);
+					if (Fit != IdMap.end())
+					{
+						OutputPinSource[L.ToPort] = { Fit->second, L.FromPort };
+					}
+				}
+				else
+				{
+					// Passthrough: input pin wired straight to an output pin.
+					PassthroughOutToIn[L.ToPort] = L.FromPort;
+				}
+			}
+
+			// 4. Connect output pins to the instance's external consumers.
+			for (const auto& [PinJ, Consumer, Port] : OutputConsumers)
+			{
+				auto Sit = OutputPinSource.find(PinJ);
+				if (Sit != OutputPinSource.end())
+				{
+					AddLink(Sit->second.first, Sit->second.second, Consumer, Port);
+					continue;
+				}
+				auto Pit = PassthroughOutToIn.find(PinJ);
+				if (Pit != PassthroughOutToIn.end())
+				{
+					auto Dit = InputPinDriver.find(Pit->second);
+					if (Dit != InputPinDriver.end())
+					{
+						AddLink(Dit->second.first, Dit->second.second, Consumer, Port);
+					}
+				}
+			}
+
+			// 5. Drop the instance and every link incident to it.
+			WorkLinks.erase(std::remove_if(WorkLinks.begin(), WorkLinks.end(),
+				[SId](const FLink& L) { return L.FromNode == SId || L.ToNode == SId; }),
+				WorkLinks.end());
+			WorkNodes.erase(SId);
+		}
+	}
+
+	bool FGraphModel::ExpandSubgraphs(std::unordered_map<FNodeId, FNodeRecord>& WorkNodes,
+		std::vector<FLink>& WorkLinks)
+	{
+		// Fast path: nothing to do if there are no subgraph instances.
+		bool bAny = false;
+		for (const auto& [Id, Rec] : WorkNodes)
+		{
+			if (Rec.Node && IsSubgraphInstance(*Rec.Node))
+			{
+				bAny = true;
+				break;
+			}
+		}
+		if (!bAny)
+		{
+			return true;
+		}
+
+		// Validate every top-level instance's definition tree up front
+		// (recursion / depth / forbidden types) before mutating anything.
+		for (const auto& [Id, Rec] : WorkNodes)
+		{
+			auto* Sub = dynamic_cast<FSubgraph*>(Rec.Node.get());
+			if (!Sub)
+			{
+				continue;
+			}
+			if (!Sub->GetDefinition())
+			{
+				LastCompileError.bHasError = true;
+				LastCompileError.Message = "Subgraph instance has no definition bound.";
+				LastCompileError.ToNode = Id;
+				return false;
+			}
+			std::vector<std::string> Stack;
+			std::string Err = ValidateSubgraphDefinition(*Sub->GetDefinition(), Stack);
+			if (!Err.empty())
+			{
+				std::fprintf(stderr, "Compile: %s\n", Err.c_str());
+				LastCompileError.bHasError = true;
+				LastCompileError.Message = std::move(Err);
+				LastCompileError.ToNode = Id;
+				return false;
+			}
+		}
+
+		// Fresh-id counters: start above every id already present so cloned
+		// internal nodes / links never collide with the parent graph (§3).
+		FNodeId NextFreshNode = NextNodeId;
+		for (const auto& [Id, Rec] : WorkNodes)
+		{
+			NextFreshNode = std::max(NextFreshNode, Id + 1);
+		}
+		FLinkId NextFreshLink = NextLinkId;
+		for (const FLink& L : WorkLinks)
+		{
+			NextFreshLink = std::max(NextFreshLink, L.Id + 1);
+		}
+
+		// Flatten iteratively: each pass expands one instance. Nested instances
+		// surface as fresh nodes and get expanded on later passes. Recursion is
+		// already rejected, so the definition-reference DAG is finite and this
+		// terminates; the guard is a backstop against pathological inputs.
+		size_t Guard = 0;
+		while (true)
+		{
+			FNodeId SId = 0;
+			for (const auto& [Id, Rec] : WorkNodes)
+			{
+				if (Rec.Node && IsSubgraphInstance(*Rec.Node))
+				{
+					SId = Id;
+					break;
+				}
+			}
+			if (SId == 0)
+			{
+				break;
+			}
+			if (++Guard > 10000)
+			{
+				LastCompileError.bHasError = true;
+				LastCompileError.Message = "Subgraph expansion exceeded the safety limit.";
+				return false;
+			}
+			ExpandOneSubgraph(WorkNodes, WorkLinks, SId, NextFreshNode, NextFreshLink);
+		}
+		return true;
+	}
+
 	std::shared_ptr<FAudioGraph> FGraphModel::Compile(double SampleRate)
 	{
 		LastCompileError = FCompileError{};  // clear at the start of every Compile
+
+		// Subgraph pre-pass. Work on copies so the user-visible model is never
+		// mutated; expansion macro-inlines every FSubgraph instance into its
+		// internal nodes (docs/PLAN-SUBGRAPHS.md §1.1) before the normal
+		// partition / DFS / plumb runs on the flattened graph. The common case
+		// (no subgraphs) is a cheap copy + early return inside ExpandSubgraphs.
+		std::unordered_map<FNodeId, FNodeRecord> WorkNodes = Nodes;
+		std::vector<FLink> WorkLinks = Links;
+		if (!ExpandSubgraphs(WorkNodes, WorkLinks))
+		{
+			return std::make_shared<FAudioGraph>();  // LastCompileError is set
+		}
+		return CompileFlattened(WorkNodes, WorkLinks, SampleRate);
+	}
+
+	std::shared_ptr<FAudioGraph> FGraphModel::CompileFlattened(
+		const std::unordered_map<FNodeId, FNodeRecord>& Nodes,
+		const std::vector<FLink>& Links,
+		double SampleRate)
+	{
 		auto Graph = std::make_shared<FAudioGraph>();
 
 		// -- Step 1: locate the output sink --------------------------------------
-		FNodeRecord* OutputRec = nullptr;
-		for (auto& [Id, Rec] : Nodes)
+		const FNodeRecord* OutputRec = nullptr;
+		for (const auto& [Id, Rec] : Nodes)
 		{
 			if (std::string(Rec.Node->GetTypeName()) == "Output")
 			{

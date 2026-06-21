@@ -191,6 +191,20 @@ namespace NodeSynth
 		const FMidiMapping* FindMidiMapping(FNodeId NodeId, uint32_t ParamIndex) const;
 
 	private:
+		// Subgraph compile pipeline (SG.2, see Graph.cpp / docs/PLAN-SUBGRAPHS.md).
+		// ExpandSubgraphs macro-inlines every FSubgraph instance into its
+		// internal nodes within the working copies, propagating the instance's
+		// per-voice flag. Returns false (with LastCompileError set) on a
+		// subgraph validation failure (recursion or a forbidden node type).
+		// CompileFlattened then runs the normal partition / DFS / plumb on the
+		// already-flattened graph.
+		bool ExpandSubgraphs(std::unordered_map<FNodeId, FNodeRecord>& WorkNodes,
+			std::vector<FLink>& WorkLinks);
+		std::shared_ptr<FAudioGraph> CompileFlattened(
+			const std::unordered_map<FNodeId, FNodeRecord>& Nodes,
+			const std::vector<FLink>& Links,
+			double SampleRate);
+
 		std::unordered_map<FNodeId, FNodeRecord> Nodes;
 		std::vector<FLink> Links;
 		std::vector<FMidiMapping> MidiMappings;

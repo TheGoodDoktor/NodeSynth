@@ -4,6 +4,8 @@
 
 #include "dsp/Add.h"
 #include "dsp/Adsr.h"
+#include "dsp/Subgraph.h"
+#include "dsp/internal/SubgraphBoundary.h"
 #include "dsp/AutoPan.h"
 #include "dsp/Bitcrusher.h"
 #include "dsp/Chorus.h"
@@ -407,6 +409,25 @@ namespace NodeSynth
 
 	std::shared_ptr<INode> MakeNodeByTypeName(const std::string& TypeName)
 	{
+		// Structure / internal types are constructible by name (so patch and
+		// subgraph deserialization + Clone work) but are deliberately absent
+		// from GetNodeRegistry() so they never appear in the node palette.
+		// FSubgraph instances get their definition bound by the caller after
+		// construction; the boundary nodes get their ports via
+		// SyncSubgraphBoundaries().
+		if (TypeName == "Subgraph")
+		{
+			return std::make_shared<FSubgraph>();
+		}
+		if (TypeName == "_SubgraphInputs")
+		{
+			return std::make_shared<Internal::FSubgraphInputs>();
+		}
+		if (TypeName == "_SubgraphOutputs")
+		{
+			return std::make_shared<Internal::FSubgraphOutputs>();
+		}
+
 		for (const FNodeRegistration& Reg : GetNodeRegistry())
 		{
 			if (TypeName == Reg.TypeName)
