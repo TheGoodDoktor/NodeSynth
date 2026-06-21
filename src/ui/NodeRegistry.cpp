@@ -42,6 +42,7 @@
 #include "dsp/Svf.h"
 #include "dsp/Tremolo.h"
 #include "dsp/Vca.h"
+#include "dsp/Vocoder.h"
 #include "dsp/VoiceAllocator.h"
 #include "dsp/Waveshaper.h"
 #include "dsp/WavetableOscillator.h"
@@ -328,6 +329,15 @@ namespace NodeSynth
 				"bell timbre.",
 				"Effects",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FRingMod>(); },
+			},
+			{
+				"Vocoder", "Vocoder",
+				"Channel vocoder. Imposes the modulator's moving spectrum onto\n"
+				"the carrier — the 'talking synth'. Wire a rich Carrier (saw /\n"
+				"square oscillator) and a Modulator (a voice via Mic Input).\n"
+				"8 / 16 / 24 bands, attack / release, and a formant-shift knob.",
+				"Effects",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FVocoder>(); },
 			},
 			{
 				"StereoWidener", "Stereo Widener",
