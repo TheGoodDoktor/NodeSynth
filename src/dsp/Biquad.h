@@ -44,6 +44,25 @@ namespace NodeSynth
 			Normalise(B0_, B1_, B2_, A0_, A1_, A2_);
 		}
 
+		// RBJ band-pass with constant 0 dB peak gain — the gain is unity at Fc
+		// and falls away on both sides. Q sets the bandwidth (higher Q = narrower
+		// band). Used by the vocoder's analysis / synthesis filter banks; cascade
+		// two FBiquadState through one FBiquadCoeffs for a 24 dB/oct skirt.
+		void SetBandpass(float Fc, float Q, float SampleRate)
+		{
+			const float W0 = 2.0f * 3.14159265358979f * Fc / SampleRate;
+			const float CosW = std::cos(W0);
+			const float Alpha = std::sin(W0) / (2.0f * Q);
+
+			const float B0_ = Alpha;
+			const float B1_ = 0.0f;
+			const float B2_ = -Alpha;
+			const float A0_ = 1.0f + Alpha;
+			const float A1_ = -2.0f * CosW;
+			const float A2_ = 1.0f - Alpha;
+			Normalise(B0_, B1_, B2_, A0_, A1_, A2_);
+		}
+
 		void SetIdentity()
 		{
 			B0 = 1.0f; B1 = 0.0f; B2 = 0.0f;
