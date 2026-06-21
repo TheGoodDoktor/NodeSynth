@@ -173,6 +173,22 @@ namespace NodeSynth
 		// nullptr (non-cloneable types like MIDI input or virtual keyboard).
 		bool SetNodePerVoice(FNodeId Id, bool bPerVoice);
 
+		// Subgraph pin maintenance. When a pin is removed from / reordered on a
+		// subgraph, the boundary nodes (inside the definition) and every
+		// instance (in any patch) gain or lose a positional port, so the links
+		// referencing those ports have to be fixed up. bOutputPort selects the
+		// producer side (FromNode/FromPort) vs the consumer side
+		// (ToNode/ToPort) of the named node. These mutate Links directly and do
+		// NOT record edit history (pin edits aren't undoable in v1, §1.12).
+		//   - RemovePortAndShiftLinks: drop links at RemovedPort; decrement the
+		//     port index of links above it.
+		//   - SwapPortLinks: swap the port index of links at PortA and PortB.
+		//   - CountPortLinks: how many links reference (Node, Port) on that side
+		//     (used to warn before a destructive pin removal).
+		void RemovePortAndShiftLinks(FNodeId Node, bool bOutputPort, uint32_t RemovedPort);
+		void SwapPortLinks(FNodeId Node, bool bOutputPort, uint32_t PortA, uint32_t PortB);
+		uint32_t CountPortLinks(FNodeId Node, bool bOutputPort, uint32_t Port) const;
+
 		// Pre-flight check for a proposed link, mirroring the polyphony rule
 		// enforced in Compile. Returns empty string if the link would compile,
 		// or a human-readable reason string if it would be rejected. Used by

@@ -1009,6 +1009,14 @@ namespace NodeSynth
 		ed::EditorContext* const ActiveCtx = bAtBase ? this->Context : SubgraphStack.back()->Context;
 		FEditHistory* const ActiveHistory = bAtBase ? this->History : nullptr;
 
+		// When dived, the subgraph's pin-management panel sits above the
+		// selected-node properties.
+		if (!bAtBase && SubgraphStack.back()->Definition)
+		{
+			DrawSubgraphPinPanel(PatchModel, *SubgraphStack.back()->Definition);
+			ImGui::Separator();
+		}
+
 		ed::SetCurrentEditor(ActiveCtx);
 		ed::NodeId SelectedIds[1];
 		const int Count = ed::GetSelectedNodes(SelectedIds, 1);
@@ -1344,6 +1352,191 @@ namespace NodeSynth
 		{
 			DrawModMatrixUI(*Matrix, Rec->Id, Model, Sink, ActiveHistory);
 		}
+	}
+
+	void FGraphEditorPanel::DrawSubgraphPinPanel(FGraphModel& PatchModel, FSubgraphDefinition& Def)
+	{
+		// Locate the boundary nodes inside the definition.
+		FNodeId InputsId = 0;
+		FNodeId OutputsId = 0;
+		for (const auto& [Id, Rec] : Def.InternalGraph.GetNodes())
+		{
+			if (!Rec.Node) { continue; }
+			const std::string T = Rec.Node->GetTypeName();
+			if (T == "_SubgraphInputs") { InputsId = Id; }
+			else if (T == "_SubgraphOutputs") { OutputsId = Id; }
+		}
+
+		// Visit every instance of Def reachable from the open hierarchy (the
+		// patch plus any open parent subgraph levels) so port-index fixups touch
+		// all of them. The top level is Def's own graph — it can't contain an
+		// instance of itself, so scanning it is harmless.
+		auto ForEachInstance = [&](auto&& Fn)
+		{
+			auto Scan = [&](FGraphModel& M)
+			{
+				for (const auto& [Id, Rec] : M.GetNodes())
+				{
+					if (auto* Sub = dynamic_cast<FSubgraph*>(Rec.Node.get()))
+					{
+						if (Sub->GetDefinition().get() == &Def)
+						{
+							Fn(M, Id);
+						}
+					}
+				}
+			};
+			Scan(PatchModel);
+			for (auto& Level : SubgraphStack)
+			{
+				if (Level && Level->Model)
+				{
+					Scan(*Level->Model);
+				}
+			}
+		};
+
+		auto RemovePin = [&](bool bInput, uint32_t Idx)
+		{
+			std::vector<FSubgraphPin>& Pins = bInput ? Def.InputPins : Def.OutputPins;
+			if (Idx >= Pins.size()) { return; }
+			const FNodeId BoundaryId = bInput ? InputsId : OutputsId;
+			// Input pins are the InputsBoundary's OUTPUT ports and the instance's
+			// INPUT ports; output pins are the reverse.
+			Def.InternalGraph.RemovePortAndShiftLinks(BoundaryId, bInput, Idx);
+			ForEachInstance([&](FGraphModel& M, FNodeId Inst)
+			{
+				M.RemovePortAndShiftLinks(Inst, !bInput, Idx);
+			});
+			Pins.erase(Pins.begin() + Idx);
+			SyncSubgraphBoundaries(Def);
+			bSubgraphParamDirty = true;
+		};
+
+		ImGui::TextUnformatted("Subgraph Pins");
+		ImGui::TextDisabled("Editing: %s", Def.Name.c_str());
+
+		auto DrawPinList = [&](bool bInput)
+		{
+			std::vector<FSubgraphPin>& Pins = bInput ? Def.InputPins : Def.OutputPins;
+			const FNodeId BoundaryId = bInput ? InputsId : OutputsId;
+			const bool bBoundaryOutput = bInput;   // input pins = boundary outputs
+			const bool bInstanceOutput = !bInput;  // input pins = instance inputs
+
+			ImGui::SeparatorText(bInput ? "Inputs" : "Outputs");
+			for (uint32_t I = 0; I < Pins.size(); ++I)
+			{
+				ImGui::PushID(static_cast<int>((bInput ? 0x10000u : 0x20000u) + I));
+
+				ImGui::TextUnformatted(Pins[I].Type == EPortType::Control ? "Ctrl" : "Aud ");
+				ImGui::SameLine();
+
+				char Buf[64];
+				std::snprintf(Buf, sizeof(Buf), "%s", Pins[I].Name.c_str());
+				ImGui::SetNextItemWidth(120.0f);
+				if (ImGui::InputText("##name", Buf, sizeof(Buf)))
+				{
+					Pins[I].Name = Buf;
+					SyncSubgraphBoundaries(Def);  // label-only; no recompile
+				}
+
+				ImGui::SameLine();
+				if (ImGui::ArrowButton("##up", ImGuiDir_Up) && I > 0)
+				{
+					Def.InternalGraph.SwapPortLinks(BoundaryId, bBoundaryOutput, I, I - 1);
+					ForEachInstance([&](FGraphModel& M, FNodeId Inst)
+					{
+						M.SwapPortLinks(Inst, bInstanceOutput, I, I - 1);
+					});
+					std::swap(Pins[I], Pins[I - 1]);
+					SyncSubgraphBoundaries(Def);
+					bSubgraphParamDirty = true;
+				}
+				ImGui::SameLine();
+				if (ImGui::ArrowButton("##down", ImGuiDir_Down) && I + 1 < Pins.size())
+				{
+					Def.InternalGraph.SwapPortLinks(BoundaryId, bBoundaryOutput, I, I + 1);
+					ForEachInstance([&](FGraphModel& M, FNodeId Inst)
+					{
+						M.SwapPortLinks(Inst, bInstanceOutput, I, I + 1);
+					});
+					std::swap(Pins[I], Pins[I + 1]);
+					SyncSubgraphBoundaries(Def);
+					bSubgraphParamDirty = true;
+				}
+				ImGui::SameLine();
+				if (ImGui::SmallButton("x"))
+				{
+					uint32_t LinkCount = Def.InternalGraph.CountPortLinks(BoundaryId, bBoundaryOutput, I);
+					ForEachInstance([&](FGraphModel& M, FNodeId Inst)
+					{
+						LinkCount += M.CountPortLinks(Inst, bInstanceOutput, I);
+					});
+					bConfirmPinRemoveIsInput = bInput;
+					ConfirmPinRemoveIndex = static_cast<int32_t>(I);
+					ConfirmPinRemoveLinkCount = LinkCount;
+					if (LinkCount == 0)
+					{
+						bPinRemoveConfirmed = true;  // applied after the lists draw
+					}
+					else
+					{
+						ImGui::OpenPopup("ConfirmPinRemove");
+					}
+				}
+
+				ImGui::PopID();
+			}
+
+			// Add-pin row.
+			int32_t& AddType = bInput ? AddInputPinType : AddOutputPinType;
+			const char* TypeNames[] = { "Audio", "Control" };
+			ImGui::PushID(bInput ? "addin" : "addout");
+			ImGui::SetNextItemWidth(90.0f);
+			ImGui::Combo("##type", &AddType, TypeNames, 2);
+			ImGui::SameLine();
+			if (ImGui::SmallButton(bInput ? "+ Add Input" : "+ Add Output"))
+			{
+				FSubgraphPin NewPin;
+				NewPin.Name = (bInput ? "In" : "Out") + std::to_string(Pins.size() + 1);
+				NewPin.Type = (AddType == 1) ? EPortType::Control : EPortType::Audio;
+				Pins.push_back(std::move(NewPin));  // new port appended → no link fixup
+				SyncSubgraphBoundaries(Def);
+				bSubgraphParamDirty = true;
+			}
+			ImGui::PopID();
+		};
+
+		DrawPinList(true);
+		DrawPinList(false);
+
+		// Confirmation modal for removing a pin that still has links.
+		if (ImGui::BeginPopupModal("ConfirmPinRemove", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			ImGui::Text("This pin has %u connected link(s).", ConfirmPinRemoveLinkCount);
+			ImGui::TextUnformatted("Remove the pin and break them?");
+			if (ImGui::Button("Remove"))
+			{
+				bPinRemoveConfirmed = true;
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel"))
+			{
+				ConfirmPinRemoveIndex = -1;
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
+
+		// Apply a deferred removal after both lists (and the modal) have drawn,
+		// so the pin vector isn't mutated mid-iteration.
+		if (bPinRemoveConfirmed && ConfirmPinRemoveIndex >= 0)
+		{
+			RemovePin(bConfirmPinRemoveIsInput, static_cast<uint32_t>(ConfirmPinRemoveIndex));
+			ConfirmPinRemoveIndex = -1;
+		}
+		bPinRemoveConfirmed = false;
 	}
 
 	void FGraphEditorPanel::DrawKeyboardPanel(FGraphModel& /*Model*/)

@@ -58,7 +58,9 @@ namespace NodeSynth
 		// imgui-node-editor contexts.
 		void OnModelReplaced();
 
-		// Renders parameter sliders for the currently selected node.
+		// Renders parameter sliders for the currently selected node. When dived
+		// into a subgraph, the subgraph's pin-management panel is shown above
+		// the selected-node properties.
 		void DrawPropertyPanel(FGraphModel& Model);
 
 		// Renders a persistent UI for any FVirtualKeyboard nodes in the graph,
@@ -111,6 +113,24 @@ namespace NodeSynth
 		void EnterSubgraph(const std::shared_ptr<FSubgraphDefinition>& Def);
 		// Destroys subgraph levels until exactly KeepDepth remain (0 = patch).
 		void PopToLevel(int32_t KeepDepth);
+
+		// Pin-management UI for the open subgraph definition: add / rename /
+		// reorder / remove input + output pins. Edits propagate to the boundary
+		// nodes and to every instance (in PatchModel and any open parent level)
+		// so positional port links stay consistent. Sets bSubgraphParamDirty on
+		// a structural change so the patch recompiles.
+		void DrawSubgraphPinPanel(FGraphModel& PatchModel, FSubgraphDefinition& Def);
+
+		// "Add pin" type selectors (0 = Audio, 1 = Control) for the pin panel.
+		int32_t AddInputPinType = 0;
+		int32_t AddOutputPinType = 0;
+		// Deferred pin removal (applied after the pin lists draw, so the pin
+		// vector isn't mutated mid-iteration). A removal with connected links
+		// routes through a confirmation modal first.
+		bool bConfirmPinRemoveIsInput = false;
+		int32_t ConfirmPinRemoveIndex = -1;
+		uint32_t ConfirmPinRemoveLinkCount = 0;
+		bool bPinRemoveConfirmed = false;
 
 		// Deferred navigation, captured during Draw and applied after the
 		// editor canvas closes. PendingDive non-null = dive into it next; a

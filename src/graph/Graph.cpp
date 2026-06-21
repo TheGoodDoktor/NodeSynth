@@ -196,6 +196,62 @@ namespace NodeSynth
 		return true;
 	}
 
+	void FGraphModel::RemovePortAndShiftLinks(FNodeId Node, bool bOutputPort, uint32_t RemovedPort)
+	{
+		Links.erase(std::remove_if(Links.begin(), Links.end(),
+			[&](const FLink& L)
+			{
+				const FNodeId N = bOutputPort ? L.FromNode : L.ToNode;
+				const uint32_t P = bOutputPort ? L.FromPort : L.ToPort;
+				return N == Node && P == RemovedPort;
+			}),
+			Links.end());
+
+		for (FLink& L : Links)
+		{
+			if (bOutputPort && L.FromNode == Node && L.FromPort > RemovedPort)
+			{
+				--L.FromPort;
+			}
+			else if (!bOutputPort && L.ToNode == Node && L.ToPort > RemovedPort)
+			{
+				--L.ToPort;
+			}
+		}
+	}
+
+	void FGraphModel::SwapPortLinks(FNodeId Node, bool bOutputPort, uint32_t PortA, uint32_t PortB)
+	{
+		for (FLink& L : Links)
+		{
+			if (bOutputPort && L.FromNode == Node)
+			{
+				if (L.FromPort == PortA) { L.FromPort = PortB; }
+				else if (L.FromPort == PortB) { L.FromPort = PortA; }
+			}
+			else if (!bOutputPort && L.ToNode == Node)
+			{
+				if (L.ToPort == PortA) { L.ToPort = PortB; }
+				else if (L.ToPort == PortB) { L.ToPort = PortA; }
+			}
+		}
+	}
+
+	uint32_t FGraphModel::CountPortLinks(FNodeId Node, bool bOutputPort, uint32_t Port) const
+	{
+		uint32_t Count = 0;
+		for (const FLink& L : Links)
+		{
+			const FNodeId N = bOutputPort ? L.FromNode : L.ToNode;
+			const uint32_t P = bOutputPort ? L.FromPort : L.ToPort;
+			if (N == Node && P == Port)
+			{
+				++Count;
+			}
+		}
+		return Count;
+	}
+
 	void FGraphModel::AddMidiMapping(const FMidiMapping& Mapping)
 	{
 		// Replace any existing mapping on the same (Channel, Cc) pair. Wrap
