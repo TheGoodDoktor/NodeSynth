@@ -4,7 +4,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <memory>
+#include <system_error>
 #include <unordered_set>
 
 #include <imgui.h>
@@ -28,6 +30,8 @@
 #include "dsp/Svf.h"
 #include "dsp/WavetableOscillator.h"
 #include "dsp/Vca.h"
+#include "io/SubgraphBrowser.h"
+#include "io/SubgraphSerializer.h"
 #include "midi/MidiDeviceManager.h"
 #include "ui/AdsrUI.h"
 #include "ui/MeterUI.h"
@@ -984,6 +988,34 @@ namespace NodeSynth
 					bChanged = true;
 				}
 			}
+
+			// Subgraph asset dropped from the library panel (base level only —
+			// importing registers the definition in the patch's map).
+			if (const ImGuiPayload* SgPayload = ImGui::AcceptDragDropPayload(SubgraphAssetPayloadId);
+				SgPayload != nullptr && bAtBase)
+			{
+				const std::string AssetPath(static_cast<const char*>(SgPayload->Data));
+				if (auto Loaded = LoadSubgraph(AssetPath))
+				{
+					// Re-use an existing definition of the same name (so repeated
+					// drops share one definition), otherwise register the import.
+					std::shared_ptr<FSubgraphDefinition> Def =
+						Model.FindSubgraphDefinition(Loaded->Name);
+					if (!Def)
+					{
+						Def = Model.AddSubgraphDefinition(
+							std::make_shared<FSubgraphDefinition>(std::move(*Loaded)));
+					}
+					SyncSubgraphBoundaries(*Def);
+
+					const ImVec2 CanvasPos = ed::ScreenToCanvas(ImGui::GetMousePos());
+					auto Instance = std::make_shared<FSubgraph>();
+					Instance->SetDefinition(Def);
+					const FNodeId NewId = Model.AddNode(Instance, CanvasPos.x, CanvasPos.y);
+					ed::SetNodePosition(ed::NodeId(NewId), CanvasPos);
+					bChanged = true;
+				}
+			}
 			ImGui::EndDragDropTarget();
 		}
 
@@ -1423,6 +1455,22 @@ namespace NodeSynth
 
 		ImGui::TextUnformatted("Subgraph Pins");
 		ImGui::TextDisabled("Editing: %s", Def.Name.c_str());
+
+		// Save the open definition as a reusable .nspg asset in the user dir.
+		// The library panel picks it up on its next Refresh.
+		if (ImGui::SmallButton("Save as Asset"))
+		{
+			std::error_code Ec;
+			const std::filesystem::path Dir = GetUserSubgraphDir();
+			std::filesystem::create_directories(Dir, Ec);
+			const std::filesystem::path AssetPath = Dir / (Def.Name + ".nspg");
+			SaveSubgraph(Def, AssetPath);
+		}
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("Writes %s.nspg to your user subgraphs folder.\n"
+				"Refresh the Subgraph Library to see it.", Def.Name.c_str());
+		}
 
 		auto DrawPinList = [&](bool bInput)
 		{
