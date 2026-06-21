@@ -446,10 +446,21 @@ namespace NodeSynth
 			const auto InPorts = Node.GetInputPorts();
 			const auto OutPorts = Node.GetOutputPorts();
 
+			// Subgraph instances show their definition name as the title (the
+			// icon stays keyed on the "Subgraph" type name).
+			const char* TitleText = Node.GetTypeName();
+			if (auto* Sub = dynamic_cast<const FSubgraph*>(&Node))
+			{
+				if (Sub->GetDefinition() && !Sub->GetDefinition()->Name.empty())
+				{
+					TitleText = Sub->GetDefinition()->Name.c_str();
+				}
+			}
+
 			ed::BeginNode(ed::NodeId(Id));
 			ImGui::BeginGroup();
 			IconBeforeText(Node.GetTypeName(), ImGui::GetTextLineHeight());
-			ImGui::TextUnformatted(Node.GetTypeName());
+			ImGui::TextUnformatted(TitleText);
 			if (Rec.bPerVoice)
 			{
 				// Per-voice badge: small bracketed label after the type name so
