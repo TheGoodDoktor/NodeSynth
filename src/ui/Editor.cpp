@@ -15,6 +15,8 @@
 #include "dsp/Adsr.h"
 #include "dsp/Gain.h"
 #include "dsp/GateButton.h"
+#include "dsp/Subgraph.h"
+#include "dsp/internal/SubgraphBoundary.h"
 #include "dsp/Meter.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
@@ -64,6 +66,21 @@ namespace NodeSynth
 			OutPortIndex = static_cast<uint32_t>((PinId >> PortIndexShift) & PortIndexMask);
 			OutNodeId = PinId >> NodeIdShift;
 		}
+
+		bool IsSubgraphBoundary(const INode& Node)
+		{
+			const std::string T = Node.GetTypeName();
+			return T == "_SubgraphInputs" || T == "_SubgraphOutputs";
+		}
+
+		// Node types that may not be created inside a subgraph (the patch sink
+		// and the voice allocator). Mirrors FGraphModel::Compile's expansion
+		// rejection so the user can't drop one in to begin with.
+		bool IsForbiddenInSubgraph(const char* TypeName)
+		{
+			return std::strcmp(TypeName, "Output") == 0
+				|| std::strcmp(TypeName, "VoiceAllocator") == 0;
+		}
 	}
 
 	FGraphEditorPanel::FGraphEditorPanel(std::string InSettingsFile)
@@ -78,11 +95,72 @@ namespace NodeSynth
 
 	FGraphEditorPanel::~FGraphEditorPanel()
 	{
+		ed::SetCurrentEditor(nullptr);
+		for (auto& Level : SubgraphStack)
+		{
+			if (Level && Level->Context)
+			{
+				ed::DestroyEditor(Level->Context);
+			}
+		}
+		SubgraphStack.clear();
 		if (Context)
 		{
 			ed::DestroyEditor(Context);
 			Context = nullptr;
 		}
+	}
+
+	void FGraphEditorPanel::OnModelReplaced()
+	{
+		PopToLevel(0);  // a freshly loaded patch has different subgraph defs
+		bFirstFrame = true;
+		NodeDragStates.clear();
+	}
+
+	void FGraphEditorPanel::EnterSubgraph(const std::shared_ptr<FSubgraphDefinition>& Def)
+	{
+		if (!Def)
+		{
+			return;
+		}
+		// Make sure the boundary nodes carry the definition's current pins so
+		// they render (and validate links) with the right ports.
+		SyncSubgraphBoundaries(*Def);
+
+		auto Level = std::make_unique<FSubgraphLevel>();
+		ed::Config Cfg;
+		// No settings file: subgraph node positions live in the definition's
+		// node records (and serialize with it), so the library doesn't need to
+		// persist a separate canvas file per level.
+		Cfg.SettingsFile = nullptr;
+		Level->Context = ed::CreateEditor(&Cfg);
+		Level->Model = &Def->InternalGraph;
+		Level->Definition = Def;
+		Level->Name = Def->Name;
+		SubgraphStack.push_back(std::move(Level));
+
+		bFirstFrame = true;        // reseed positions from the level's model
+		NodeDragStates.clear();
+	}
+
+	void FGraphEditorPanel::PopToLevel(int32_t KeepDepth)
+	{
+		if (KeepDepth < 0)
+		{
+			KeepDepth = 0;
+		}
+		ed::SetCurrentEditor(nullptr);
+		while (static_cast<int32_t>(SubgraphStack.size()) > KeepDepth)
+		{
+			if (SubgraphStack.back() && SubgraphStack.back()->Context)
+			{
+				ed::DestroyEditor(SubgraphStack.back()->Context);
+			}
+			SubgraphStack.pop_back();
+		}
+		bFirstFrame = true;
+		NodeDragStates.clear();
 	}
 
 	namespace
@@ -143,15 +221,29 @@ namespace NodeSynth
 
 	}
 
-	bool FGraphEditorPanel::Draw(FGraphModel& Model)
+	bool FGraphEditorPanel::Draw(FGraphModel& PatchModel)
 	{
-		bool bChanged = false;
+		// Fold in any param edit made inside a subgraph last frame so the patch
+		// recompiles and the edited definition takes audible effect.
+		bool bChanged = bSubgraphParamDirty;
+		bSubgraphParamDirty = false;
 
-		// MIDI CC drain — runs every frame regardless of whether the property
-		// panel is showing a node. CC events feed two consumers:
+		// Resolve the active editing level: the patch model at the base, or the
+		// deepest dived subgraph's internal graph. The rest of Draw operates on
+		// `Model` / `ActiveCtx` / `ActiveHistory` so it works at any level.
+		const bool bAtBase = SubgraphStack.empty();
+		FGraphModel& Model = bAtBase ? PatchModel : *SubgraphStack.back()->Model;
+		ed::EditorContext* const ActiveCtx = bAtBase ? this->Context : SubgraphStack.back()->Context;
+		// Undo/redo for subgraph internals is deferred (PLAN-SUBGRAPHS §1.12);
+		// disable history recording while inside a subgraph so its edits don't
+		// push mismatched entries onto the patch's history stack.
+		FEditHistory* const ActiveHistory = bAtBase ? this->History : nullptr;
+
+		// MIDI CC drain — base level only. Learn targets and mappings reference
+		// patch node ids, so they pause while editing a subgraph's internals.
 		//   1) Learn mode: capture the next CC after a 200 ms guard window.
 		//   2) Otherwise: apply any matching mapping to its target param.
-		if (MidiManager != nullptr)
+		if (MidiManager != nullptr && bAtBase)
 		{
 			const double Now = ImGui::GetTime();
 			MidiManager->DrainCcEvents([&](uint8_t Channel, uint8_t Cc, uint8_t Value)
@@ -229,7 +321,40 @@ namespace NodeSynth
 			ImGui::Separator();
 		}
 
-		ed::SetCurrentEditor(Context);
+		// Breadcrumb bar — shown only when dived into one or more subgraphs.
+		// Click an ancestor crumb to pop back to that level; the current level
+		// (last crumb) is plain text. Pops are deferred to the end of Draw so
+		// the stack isn't mutated mid-frame.
+		if (!SubgraphStack.empty())
+		{
+			if (ImGui::SmallButton("Patch"))
+			{
+				PendingPopTo = 0;
+			}
+			for (size_t I = 0; I < SubgraphStack.size(); ++I)
+			{
+				ImGui::SameLine();
+				ImGui::TextUnformatted(">");
+				ImGui::SameLine();
+				const bool bLast = (I + 1 == SubgraphStack.size());
+				const std::string Label = "Subgraph: " + SubgraphStack[I]->Name;
+				if (bLast)
+				{
+					ImGui::TextUnformatted(Label.c_str());
+				}
+				else
+				{
+					const std::string Id = Label + "##crumb" + std::to_string(I);
+					if (ImGui::SmallButton(Id.c_str()))
+					{
+						PendingPopTo = static_cast<int32_t>(I + 1);
+					}
+				}
+			}
+			ImGui::Separator();
+		}
+
+		ed::SetCurrentEditor(ActiveCtx);
 		ed::Begin("Node Editor", ImVec2(0.0f, 0.0f));
 
 		// Title-bar screen rects per node, captured during the draw loop. Used
@@ -489,8 +614,8 @@ namespace NodeSynth
 		// a single undoable action.
 		if (ed::BeginDelete())
 		{
-			const bool bHasHistory = History != nullptr;
-			if (bHasHistory) { History->BeginComposite(); }
+			const bool bHasHistory = ActiveHistory != nullptr;
+			if (bHasHistory) { ActiveHistory->BeginComposite(); }
 			ed::LinkId DeletedLink;
 			while (ed::QueryDeletedLink(&DeletedLink))
 			{
@@ -503,15 +628,40 @@ namespace NodeSynth
 			ed::NodeId DeletedNode;
 			while (ed::QueryDeletedNode(&DeletedNode))
 			{
+				// Boundary nodes define the subgraph's signature and can't be
+				// deleted from the canvas (pins are managed via the pin panel).
+				if (FNodeRecord* Rec = Model.FindNode(DeletedNode.Get());
+					Rec && Rec->Node && IsSubgraphBoundary(*Rec->Node))
+				{
+					ed::RejectDeletedItem();
+					continue;
+				}
 				if (ed::AcceptDeletedItem())
 				{
 					Model.RemoveNode(DeletedNode.Get());
 					bChanged = true;
 				}
 			}
-			if (bHasHistory) { History->EndComposite(); }
+			if (bHasHistory) { ActiveHistory->EndComposite(); }
 		}
 		ed::EndDelete();
+
+		// Double-click a subgraph instance to dive into its internal graph.
+		// Deferred (PendingDive) so the context swap happens after the canvas
+		// closes this frame.
+		if (const ed::NodeId DoubleClicked = ed::GetDoubleClickedNode())
+		{
+			if (FNodeRecord* Rec = Model.FindNode(DoubleClicked.Get()))
+			{
+				if (auto* Sub = dynamic_cast<FSubgraph*>(Rec->Node.get()))
+				{
+					if (Sub->GetDefinition())
+					{
+						PendingDive = Sub->GetDefinition();
+					}
+				}
+			}
+		}
 
 		// Right-click background for the create-node menu.
 		ed::Suspend();
@@ -536,6 +686,7 @@ namespace NodeSynth
 		{
 			if (FNodeRecord* Rec = Model.FindNode(NodeContextTarget))
 			{
+				const bool bBoundary = Rec->Node && IsSubgraphBoundary(*Rec->Node);
 				const bool bCloneable =
 					Rec->Node && Rec->Node->Clone() != nullptr;
 				bool bPoly = Rec->bPerVoice;
@@ -567,10 +718,14 @@ namespace NodeSynth
 						}
 					}
 				}
-				if (ImGui::MenuItem("Delete", "Del"))
+				if (ImGui::MenuItem("Delete", "Del", false, !bBoundary))
 				{
 					Model.RemoveNode(NodeContextTarget);
 					bChanged = true;
+				}
+				if (bBoundary)
+				{
+					ImGui::TextDisabled("(boundary node — manage via pins)");
 				}
 			}
 			ImGui::EndPopup();
@@ -590,8 +745,29 @@ namespace NodeSynth
 				bChanged = true;
 			};
 
+			// New subgraph: create a fresh identity-passthrough definition and
+			// drop an instance. Double-click it to dive in and build its guts.
+			// Only offered at the patch level for now (nesting via this menu
+			// would need the parent's definition map — SG.5).
+			if (bAtBase)
+			{
+				if (ImGui::MenuItem("New Subgraph"))
+				{
+					auto Def = MakeEmptySubgraphDefinition(
+						"Subgraph " + std::to_string(NextSubgraphSerial++));
+					auto Instance = std::make_shared<FSubgraph>();
+					Instance->SetDefinition(std::move(Def));
+					SpawnNode(std::move(Instance));
+				}
+				ImGui::Separator();
+			}
+
 			for (const FNodeRegistration& Reg : GetNodeRegistry())
 			{
+				if (!bAtBase && IsForbiddenInSubgraph(Reg.TypeName))
+				{
+					continue;  // can't put a sink / allocator inside a subgraph
+				}
 				IconBeforeText(Reg.TypeName, ImGui::GetTextLineHeight());
 				if (ImGui::MenuItem(Reg.MenuLabel))
 				{
@@ -741,8 +917,8 @@ namespace NodeSynth
 				}
 				if (NumDropped > 0)
 				{
-					const bool bComposite = NumDropped > 1 && History != nullptr;
-					if (bComposite) { History->BeginComposite(); }
+					const bool bComposite = NumDropped > 1 && ActiveHistory != nullptr;
+					if (bComposite) { ActiveHistory->BeginComposite(); }
 					for (auto& [Id, State] : NodeDragStates)
 					{
 						if (!State.bDragging) { continue; }
@@ -751,7 +927,7 @@ namespace NodeSynth
 						const bool bActuallyMoved =
 							std::fabs(NewX - State.DragStartX) > DragEpsilon ||
 							std::fabs(NewY - State.DragStartY) > DragEpsilon;
-						if (bActuallyMoved && History != nullptr)
+						if (bActuallyMoved && ActiveHistory != nullptr)
 						{
 							FEditCommand Cmd;
 							Cmd.Type = EEditCommand::SetNodePosition;
@@ -760,7 +936,7 @@ namespace NodeSynth
 							Cmd.OldY = State.DragStartY;
 							Cmd.NewX = NewX;
 							Cmd.NewY = NewY;
-							History->Push(std::move(Cmd));
+							ActiveHistory->Push(std::move(Cmd));
 						}
 						if (FNodeRecord* RecMut = Model.FindNode(Id))
 						{
@@ -769,7 +945,7 @@ namespace NodeSynth
 						}
 						State.bDragging = false;
 					}
-					if (bComposite) { History->EndComposite(); }
+					if (bComposite) { ActiveHistory->EndComposite(); }
 				}
 			}
 		}
@@ -789,7 +965,8 @@ namespace NodeSynth
 			{
 				const int32_t Index = *static_cast<const int32_t*>(Payload->Data);
 				const auto& Registry = GetNodeRegistry();
-				if (Index >= 0 && Index < static_cast<int32_t>(Registry.size()))
+				if (Index >= 0 && Index < static_cast<int32_t>(Registry.size())
+					&& (bAtBase || !IsForbiddenInSubgraph(Registry[Index].TypeName)))
 				{
 					const ImVec2 ScreenPos = ImGui::GetMousePos();
 					const ImVec2 CanvasPos = ed::ScreenToCanvas(ScreenPos);
@@ -805,12 +982,34 @@ namespace NodeSynth
 		ed::SetCurrentEditor(nullptr);
 
 		bFirstFrame = false;
+
+		// Apply deferred subgraph navigation now that the canvas is closed, so
+		// the active context / model swap before the next frame's Draw.
+		if (PendingDive)
+		{
+			EnterSubgraph(PendingDive);
+			PendingDive.reset();
+		}
+		else if (PendingPopTo >= 0)
+		{
+			PopToLevel(PendingPopTo);
+		}
+		PendingPopTo = -1;
+
 		return bChanged;
 	}
 
-	void FGraphEditorPanel::DrawPropertyPanel(FGraphModel& Model)
+	void FGraphEditorPanel::DrawPropertyPanel(FGraphModel& PatchModel)
 	{
-		ed::SetCurrentEditor(Context);
+		// Mirror Draw's active-level resolution so the property panel shows the
+		// node selected in whichever level is open. History is disabled inside
+		// subgraphs (deferred — see Draw).
+		const bool bAtBase = SubgraphStack.empty();
+		FGraphModel& Model = bAtBase ? PatchModel : *SubgraphStack.back()->Model;
+		ed::EditorContext* const ActiveCtx = bAtBase ? this->Context : SubgraphStack.back()->Context;
+		FEditHistory* const ActiveHistory = bAtBase ? this->History : nullptr;
+
+		ed::SetCurrentEditor(ActiveCtx);
 		ed::NodeId SelectedIds[1];
 		const int Count = ed::GetSelectedNodes(SelectedIds, 1);
 		ed::SetCurrentEditor(nullptr);
@@ -867,20 +1066,26 @@ namespace NodeSynth
 		{
 			Rec->Node->SetParamValue(Index, Value);
 			Sink.SetParam(Index, Value);
+			// Inside a subgraph, the queued command can't reach the compiled
+			// clone (different id) — flag a recompile so the edit applies.
+			if (!bAtBase)
+			{
+				bSubgraphParamDirty = true;
+			}
 		};
 
 		// Push a single SetParam edit-history entry with both old + new values.
 		// Used by Bool/Choice (instantaneous) and Float (after slider release).
 		auto PushSetParamEdit = [&](uint32_t Index, float OldVal, float NewVal)
 		{
-			if (History == nullptr || OldVal == NewVal) { return; }
+			if (ActiveHistory == nullptr || OldVal == NewVal) { return; }
 			FEditCommand Cmd;
 			Cmd.Type = EEditCommand::SetParam;
 			Cmd.NodeId = Rec->Id;
 			Cmd.ParamIndex = Index;
 			Cmd.OldValue = OldVal;
 			Cmd.NewValue = NewVal;
-			History->Push(std::move(Cmd));
+			ActiveHistory->Push(std::move(Cmd));
 		};
 
 		for (uint32_t I = 0; I < Infos.size(); ++I)
@@ -1137,7 +1342,7 @@ namespace NodeSynth
 		}
 		if (auto* Matrix = dynamic_cast<FModulationMatrix*>(Rec->Node.get()))
 		{
-			DrawModMatrixUI(*Matrix, Rec->Id, Model, Sink, History);
+			DrawModMatrixUI(*Matrix, Rec->Id, Model, Sink, ActiveHistory);
 		}
 	}
 

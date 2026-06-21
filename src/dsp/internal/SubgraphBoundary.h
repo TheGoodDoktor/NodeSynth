@@ -102,4 +102,26 @@ namespace NodeSynth
 			}
 		}
 	}
+
+	// Builds a fresh subgraph definition: one Audio input pin, one Audio output
+	// pin, the two boundary nodes, and an identity In→Out passthrough link so a
+	// freshly created subgraph is immediately valid (audio flows straight
+	// through until the user inserts nodes). Used by the editor's "New Subgraph"
+	// action; pin editing comes in SG.4.
+	inline std::shared_ptr<FSubgraphDefinition> MakeEmptySubgraphDefinition(const std::string& Name)
+	{
+		auto Def = std::make_shared<FSubgraphDefinition>();
+		Def->Name = Name;
+		Def->InputPins = { { "In", EPortType::Audio, "" } };
+		Def->OutputPins = { { "Out", EPortType::Audio, "" } };
+
+		auto Inputs = std::make_shared<Internal::FSubgraphInputs>();
+		auto Outputs = std::make_shared<Internal::FSubgraphOutputs>();
+		const FNodeId InId = Def->InternalGraph.AddNode(Inputs, -220.0f, 0.0f);
+		const FNodeId OutId = Def->InternalGraph.AddNode(Outputs, 220.0f, 0.0f);
+
+		SyncSubgraphBoundaries(*Def);
+		Def->InternalGraph.AddLink(InId, 0, OutId, 0);  // identity passthrough
+		return Def;
+	}
 }
