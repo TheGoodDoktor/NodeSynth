@@ -5,9 +5,13 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <system_error>
+#include <unordered_map>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -19,6 +23,7 @@
 #include "dsp/GateButton.h"
 #include "dsp/Subgraph.h"
 #include "dsp/internal/SubgraphBoundary.h"
+#include "graph/SubgraphOps.h"
 #include "dsp/Meter.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
@@ -167,6 +172,44 @@ namespace NodeSynth
 		NodeDragStates.clear();
 	}
 
+	bool FGraphEditorPanel::MakeSubgraphFromSelection(FGraphModel& PatchModel)
+	{
+		// Read the current canvas selection (base context).
+		ed::SetCurrentEditor(Context);
+		ed::NodeId SelBuf[64];
+		const int Count = ed::GetSelectedNodes(SelBuf, 64);
+		ed::SetCurrentEditor(nullptr);
+		if (Count <= 0)
+		{
+			return false;
+		}
+
+		std::vector<FNodeId> Selected;
+		Selected.reserve(static_cast<size_t>(Count));
+		for (int I = 0; I < Count; ++I)
+		{
+			Selected.push_back(SelBuf[I].Get());
+		}
+
+		// The grouping is multi-step and the new instance's definition binding
+		// can't be replayed by undo in v1, so don't record it in history.
+		const bool bWasRecording = PatchModel.IsRecordingHistory();
+		PatchModel.SetRecordHistory(false);
+		const FNodeId InstId = GroupNodesIntoSubgraph(PatchModel, Selected);
+		PatchModel.SetRecordHistory(bWasRecording);
+
+		if (InstId == 0)
+		{
+			return false;
+		}
+		// Reseed canvas positions next frame so the new instance lands at the
+		// selection centroid (set via the model) without an explicit
+		// SetNodePosition (which needs the canvas open).
+		bFirstFrame = true;
+		NodeDragStates.clear();
+		return true;
+	}
+
 	namespace
 	{
 		// Apply a CC value (0..127) to a node param, using the param's kind
@@ -306,6 +349,25 @@ namespace NodeSynth
 		if (LearnTargetNodeId != 0 && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
 		{
 			LearnTargetNodeId = 0;
+		}
+
+		// Esc pops one subgraph level (when not typing and not cancelling learn).
+		if (!bAtBase && LearnTargetNodeId == 0
+			&& !ImGui::GetIO().WantTextInput
+			&& ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+		{
+			PendingPopTo = static_cast<int32_t>(SubgraphStack.size()) - 1;
+		}
+
+		// Ctrl+G wraps the current selection into a subgraph (patch level only).
+		if (bAtBase && ImGui::GetIO().KeyCtrl
+			&& !ImGui::GetIO().WantTextInput
+			&& ImGui::IsKeyPressed(ImGuiKey_G, false))
+		{
+			if (MakeSubgraphFromSelection(Model))
+			{
+				bChanged = true;
+			}
 		}
 
 		// Compile-error banner. Sits above the editor canvas — high visibility,

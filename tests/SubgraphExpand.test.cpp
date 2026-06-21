@@ -1,10 +1,13 @@
+#include "dsp/Constant.h"
 #include "dsp/Gain.h"
 #include "dsp/Oscillator.h"
 #include "dsp/Output.h"
 #include "dsp/Subgraph.h"
+#include "dsp/Svf.h"
 #include "dsp/internal/SubgraphBoundary.h"
 #include "graph/Graph.h"
 #include "graph/SubgraphDefinition.h"
+#include "graph/SubgraphOps.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -14,6 +17,7 @@
 
 using Catch::Matchers::WithinAbs;
 using NodeSynth::EPortType;
+using NodeSynth::FConstant;
 using NodeSynth::FGain;
 using NodeSynth::FGraphModel;
 using NodeSynth::FNodeId;
@@ -22,6 +26,8 @@ using NodeSynth::FOutput;
 using NodeSynth::FProcessContext;
 using NodeSynth::FSubgraph;
 using NodeSynth::FSubgraphDefinition;
+using NodeSynth::FSvf;
+using NodeSynth::GroupNodesIntoSubgraph;
 using NodeSynth::SyncSubgraphBoundaries;
 namespace Internal = NodeSynth::Internal;
 
@@ -229,4 +235,93 @@ TEST_CASE("Subgraph expansion: transitive recursion is rejected", "[subgraph][ex
 	REQUIRE(Snap->OrderedNodes.empty());
 	REQUIRE(Model.GetLastCompileError().bHasError);
 	REQUIRE(Model.GetLastCompileError().Message.find("recursive") != std::string::npos);
+}
+
+namespace
+{
+	// Builds: Osc -> Gain -> SVF.Audio, Const -> SVF.Cutoff, SVF.LP -> Output.
+	// Returns the three groupable node ids and the Output node pointer.
+	struct FGroupFixture
+	{
+		FNodeId OscId = 0, GainId = 0, SvfId = 0;
+		std::shared_ptr<FOutput> Out;
+	};
+	FGroupFixture BuildGroupFixture(FGraphModel& M)
+	{
+		FGroupFixture F;
+		auto Osc = std::make_shared<FOscillator>();
+		auto Gain = std::make_shared<FGain>();
+		auto Svf = std::make_shared<FSvf>();
+		auto Const = std::make_shared<FConstant>();
+		F.Out = std::make_shared<FOutput>();
+		Osc->SetParamValue(FOscillator::Param_Frequency, 220.0f);
+		Gain->SetParamValue(FGain::Param_Gain, 0.7f);
+		Svf->SetParamValue(FSvf::Param_Resonance, 0.5f);
+		Const->SetParamValue(FConstant::Param_Value, 900.0f);
+
+		F.OscId = M.AddNode(Osc, 0.0f, 0.0f);
+		F.GainId = M.AddNode(Gain, 100.0f, 0.0f);
+		F.SvfId = M.AddNode(Svf, 200.0f, 0.0f);
+		const FNodeId ConstId = M.AddNode(Const, 100.0f, 200.0f);
+		const FNodeId OutId = M.AddNode(F.Out, 400.0f, 0.0f);
+		M.AddLink(F.OscId, 0, F.GainId, 0);
+		M.AddLink(F.GainId, 0, F.SvfId, FSvf::Input_Audio);
+		M.AddLink(ConstId, 0, F.SvfId, FSvf::Input_Cutoff);
+		M.AddLink(F.SvfId, FSvf::Output_LowPass, OutId, 0);
+		return F;
+	}
+}
+
+TEST_CASE("Make subgraph from selection: groups 3 nodes, promotes pins, stays audio-identical",
+	"[subgraph][group]")
+{
+	// Reference (never grouped) and target (grouped) built identically.
+	FGraphModel Ref;
+	FGroupFixture RefF = BuildGroupFixture(Ref);
+
+	FGraphModel Target;
+	FGroupFixture TgtF = BuildGroupFixture(Target);
+
+	const FNodeId InstId = GroupNodesIntoSubgraph(Target,
+		{ TgtF.OscId, TgtF.GainId, TgtF.SvfId });
+	REQUIRE(InstId != 0);
+
+	// The three originals are gone, replaced by one Subgraph instance.
+	REQUIRE(Target.FindNode(TgtF.OscId) == nullptr);
+	REQUIRE(Target.FindNode(TgtF.GainId) == nullptr);
+	REQUIRE(Target.FindNode(TgtF.SvfId) == nullptr);
+	{
+		NodeSynth::FNodeRecord* Inst = Target.FindNode(InstId);
+		REQUIRE(Inst != nullptr);
+		auto* Sub = dynamic_cast<FSubgraph*>(Inst->Node.get());
+		REQUIRE(Sub != nullptr);
+		REQUIRE(Sub->GetDefinition() != nullptr);
+		// One crossing input (Const -> SVF.Cutoff) and one crossing output
+		// (SVF.LP -> Output) were promoted to pins.
+		REQUIRE(Sub->GetDefinition()->InputPins.size() == 1);
+		REQUIRE(Sub->GetDefinition()->OutputPins.size() == 1);
+		REQUIRE(Sub->GetInputPorts().size() == 1);
+		REQUIRE(Sub->GetOutputPorts().size() == 1);
+	}
+
+	auto RefSnap = Ref.Compile(48000.0);
+	auto TgtSnap = Target.Compile(48000.0);
+	REQUIRE_FALSE(RefSnap->OrderedNodes.empty());
+	REQUIRE_FALSE(TgtSnap->OrderedNodes.empty());
+
+	FProcessContext Ctx;
+	Ctx.SampleRate = 48000.0;
+	for (int Block = 0; Block < 4; ++Block)
+	{
+		RefSnap->Process(Ctx);
+		TgtSnap->Process(Ctx);
+		const float* RefBuf = RefF.Out->GetInputBuffer(0);
+		const float* TgtBuf = TgtF.Out->GetInputBuffer(0);
+		REQUIRE(RefBuf != nullptr);
+		REQUIRE(TgtBuf != nullptr);
+		for (uint32_t I = 0; I < Ctx.BlockSize; ++I)
+		{
+			REQUIRE_THAT(TgtBuf[I], WithinAbs(RefBuf[I], 1e-6f));
+		}
+	}
 }

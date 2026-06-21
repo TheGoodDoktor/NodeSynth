@@ -114,6 +114,14 @@ namespace NodeSynth
 		// Destroys subgraph levels until exactly KeepDepth remain (0 = patch).
 		void PopToLevel(int32_t KeepDepth);
 
+		// Ctrl+G: wraps the current node selection into a new subgraph instance.
+		// Links crossing the selection boundary are auto-promoted to pins
+		// (incoming → input pins, outgoing → output pins, deduped by source
+		// port). Forbidden nodes (Output / VoiceAllocator / boundaries) are
+		// dropped from the selection. Base level only; not undoable in v1.
+		// Returns true if it created a subgraph (caller should recompile).
+		bool MakeSubgraphFromSelection(FGraphModel& PatchModel);
+
 		// Pin-management UI for the open subgraph definition: add / rename /
 		// reorder / remove input + output pins. Edits propagate to the boundary
 		// nodes and to every instance (in PatchModel and any open parent level)
