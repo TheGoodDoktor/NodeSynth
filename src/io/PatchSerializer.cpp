@@ -6,68 +6,13 @@
 
 #include <nlohmann/json.hpp>
 
-#include "ui/NodeRegistry.h"
+#include "io/GraphJson.h"
 
 namespace NodeSynth
 {
 	namespace
 	{
 		using nlohmann::json;
-
-		json SerializeNode(const FNodeRecord& Rec)
-		{
-			json N;
-			N["id"] = static_cast<uint64_t>(Rec.Id);
-			N["type"] = Rec.Node->GetTypeName();
-			N["x"] = Rec.PositionX;
-			N["y"] = Rec.PositionY;
-			// Only emit the flag when set so older files stay diff-clean.
-			if (Rec.bPerVoice)
-			{
-				N["per_voice"] = true;
-			}
-
-			json Params = json::object();
-			const auto Infos = Rec.Node->GetParamInfos();
-			for (uint32_t I = 0; I < Infos.size(); ++I)
-			{
-				if (Infos[I].Kind == EParamKind::String)
-				{
-					Params[Infos[I].Name] = Rec.Node->GetParamString(I);
-				}
-				else
-				{
-					Params[Infos[I].Name] = Rec.Node->GetParamValue(I);
-				}
-			}
-			N["params"] = std::move(Params);
-			return N;
-		}
-
-		json SerializeLink(const FLink& L)
-		{
-			json J;
-			J["id"] = static_cast<uint64_t>(L.Id);
-			J["from_node"] = static_cast<uint64_t>(L.FromNode);
-			J["from_port"] = L.FromPort;
-			J["to_node"] = static_cast<uint64_t>(L.ToNode);
-			J["to_port"] = L.ToPort;
-			return J;
-		}
-
-		// Returns -1 if the param name isn't on the node.
-		int32_t FindParamIndex(const INode& Node, const std::string& Name)
-		{
-			const auto Infos = Node.GetParamInfos();
-			for (uint32_t I = 0; I < Infos.size(); ++I)
-			{
-				if (Infos[I].Name == Name)
-				{
-					return static_cast<int32_t>(I);
-				}
-			}
-			return -1;
-		}
 	}
 
 	bool SavePatch(const FGraphModel& Model, const std::filesystem::path& Path)
@@ -95,14 +40,14 @@ namespace NodeSynth
 		json Nodes = json::array();
 		for (const auto& [Id, Rec] : Model.GetNodes())
 		{
-			Nodes.push_back(SerializeNode(Rec));
+			Nodes.push_back(GraphJson::SerializeNode(Rec));
 		}
 		Root["nodes"] = std::move(Nodes);
 
 		json Links = json::array();
 		for (const FLink& L : Model.GetLinks())
 		{
-			Links.push_back(SerializeLink(L));
+			Links.push_back(GraphJson::SerializeLink(L));
 		}
 		Root["links"] = std::move(Links);
 
@@ -185,122 +130,15 @@ namespace NodeSynth
 			Meta.SampleRateHint = M.value("sample_rate_hint", 0.0);
 		}
 
-		// -- Nodes ---------------------------------------------------------------
-		if (Root.contains("nodes") && Root["nodes"].is_array())
+		// -- Nodes & links -------------------------------------------------------
+		// Shared with the subgraph serializer — same "nodes" / "links" shapes.
+		if (Root.contains("nodes"))
 		{
-			for (const json& N : Root["nodes"])
-			{
-				const std::string TypeName = N.value("type", std::string{});
-				const FNodeId Id = N.value("id", uint64_t{ 0 });
-				if (TypeName.empty() || Id == 0)
-				{
-					std::fprintf(stderr, "LoadPatch: skipping node with missing id/type\n");
-					continue;
-				}
-
-				// Deprecated node types removed when note input moved out of
-				// the graph (MIDI device + on-screen keyboard are now project-
-				// level). Patches saved before that change still mention them;
-				// skip with a clear warning so the rest of the patch loads.
-				if (TypeName == "MIDI" || TypeName == "VirtualKbd")
-				{
-					std::fprintf(stderr,
-						"LoadPatch: deprecated node type '%s' (id %llu) — note input is now project-level; skipping. "
-						"Use the on-screen keyboard panel and the MIDI Device combo at the top of it.\n",
-						TypeName.c_str(), static_cast<unsigned long long>(Id));
-					continue;
-				}
-
-				std::shared_ptr<INode> Node = MakeNodeByTypeName(TypeName);
-				if (!Node)
-				{
-					std::fprintf(stderr, "LoadPatch: unknown node type '%s' — skipping id %llu\n",
-						TypeName.c_str(), static_cast<unsigned long long>(Id));
-					continue;
-				}
-
-				const float X = N.value("x", 0.0f);
-				const float Y = N.value("y", 0.0f);
-				const FNodeId Added = Result.Model.AddNodeWithId(Id, Node, X, Y);
-				if (Added == 0)
-				{
-					std::fprintf(stderr, "LoadPatch: duplicate id or rejected node id %llu (type '%s')\n",
-						static_cast<unsigned long long>(Id), TypeName.c_str());
-					continue;
-				}
-
-				// Per-voice flag (defaults to false on missing key for back-compat
-				// with v1 files written before this field existed).
-				if (N.value("per_voice", false))
-				{
-					if (!Result.Model.SetNodePerVoice(Id, true))
-					{
-						std::fprintf(stderr,
-							"LoadPatch: per_voice rejected for id %llu (type '%s' is not cloneable)\n",
-							static_cast<unsigned long long>(Id), TypeName.c_str());
-					}
-				}
-
-				// Params — keyed by name, mapped to the node's current param index.
-				if (N.contains("params") && N["params"].is_object())
-				{
-					const auto Infos = Node->GetParamInfos();
-					for (const auto& [Name, Value] : N["params"].items())
-					{
-						const int32_t ParamIndex = FindParamIndex(*Node, Name);
-						if (ParamIndex < 0)
-						{
-							std::fprintf(stderr, "LoadPatch: unknown param '%s' on '%s' — skipping\n",
-								Name.c_str(), TypeName.c_str());
-							continue;
-						}
-						const EParamKind Kind = Infos[ParamIndex].Kind;
-						if (Kind == EParamKind::String)
-						{
-							const std::string S = Value.is_string()
-								? Value.get<std::string>()
-								: std::string{};
-							Node->SetParamString(static_cast<uint32_t>(ParamIndex), S);
-							// String params don't roundtrip through the audio
-							// command queue — they're UI-thread-only and not
-							// RT-safe (file I/O on SetParamString).
-						}
-						else
-						{
-							const float V = Value.is_number()
-								? static_cast<float>(Value.get<double>())
-								: 0.0f;
-							Node->SetParamValue(static_cast<uint32_t>(ParamIndex), V);
-							Result.InitialParams.push_back(
-								FAudioCommand::MakeSetParam(Id, static_cast<uint32_t>(ParamIndex), V));
-						}
-					}
-				}
-			}
+			GraphJson::DeserializeNodes(Root["nodes"], Result.Model, &Result.InitialParams);
 		}
-
-		// -- Links ---------------------------------------------------------------
-		if (Root.contains("links") && Root["links"].is_array())
+		if (Root.contains("links"))
 		{
-			for (const json& L : Root["links"])
-			{
-				const FNodeId FromNode = L.value("from_node", uint64_t{ 0 });
-				const FNodeId ToNode = L.value("to_node", uint64_t{ 0 });
-				const uint32_t FromPort = L.value("from_port", uint32_t{ 0 });
-				const uint32_t ToPort = L.value("to_port", uint32_t{ 0 });
-				if (FromNode == 0 || ToNode == 0)
-				{
-					continue;
-				}
-				const FLinkId Added = Result.Model.AddLink(FromNode, FromPort, ToNode, ToPort);
-				if (Added == 0)
-				{
-					std::fprintf(stderr,
-						"LoadPatch: link rejected (%llu:%u -> %llu:%u) — skipping\n",
-						static_cast<unsigned long long>(FromNode), FromPort,
-						static_cast<unsigned long long>(ToNode), ToPort);
-				}
-			}
+			GraphJson::DeserializeLinks(Root["links"], Result.Model);
 		}
 
 		// -- MIDI mappings --------------------------------------------------------

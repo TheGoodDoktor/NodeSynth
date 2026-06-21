@@ -281,7 +281,9 @@ if(NODESYNTH_BUILD_TESTS)
     add_executable(nodesynth_tests ${NODESYNTH_TEST_SOURCES}
         ${CMAKE_CURRENT_SOURCE_DIR}/src/graph/Graph.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/graph/EditHistory.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/io/GraphJson.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/io/PatchSerializer.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/io/SubgraphSerializer.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/ui/NodeRegistry.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/midi/MidiDeviceManager.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/sid/SidEmulator.cpp
