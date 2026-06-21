@@ -316,13 +316,14 @@ if(NODESYNTH_BUILD_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/src/sid/PsidLoader.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/SidPlayer.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/Wavetable.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/MicInput.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/io/PresetBrowser.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/io/SidBrowser.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/io/WavetableBrowser.cpp
     )
     target_include_directories(nodesynth_tests PRIVATE src "${chips_SOURCE_DIR}/chips")
     target_compile_definitions(nodesynth_tests PRIVATE NOMINMAX)
-    target_link_libraries(nodesynth_tests PRIVATE Catch2::Catch2WithMain nlohmann_json::nlohmann_json rtmidi)
+    target_link_libraries(nodesynth_tests PRIVATE Catch2::Catch2WithMain nlohmann_json::nlohmann_json rtmidi miniaudio)
 
     enable_testing()
     include(CTest)
