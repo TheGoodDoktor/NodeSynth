@@ -403,7 +403,11 @@ namespace NodeSynth
 				ImGui::TextUnformatted(">");
 				ImGui::SameLine();
 				const bool bLast = (I + 1 == SubgraphStack.size());
-				const std::string Label = "Subgraph: " + SubgraphStack[I]->Name;
+				// Read the name live from the definition so it tracks renames.
+				const std::string& LevelName = SubgraphStack[I]->Definition
+					? SubgraphStack[I]->Definition->Name
+					: SubgraphStack[I]->Name;
+				const std::string Label = "Subgraph: " + LevelName;
 				if (bLast)
 				{
 					ImGui::TextUnformatted(Label.c_str());
@@ -1527,7 +1531,24 @@ namespace NodeSynth
 		};
 
 		ImGui::TextUnformatted("Subgraph Pins");
-		ImGui::TextDisabled("Editing: %s", Def.Name.c_str());
+
+		// Editable definition name. Committed on focus-loss / Enter so we don't
+		// re-key the map on every keystroke. Re-keying happens on the patch
+		// model; instances share the definition pointer so their titles update.
+		// A rename that collides with an existing definition is rejected (the
+		// field reseeds to the current name next frame).
+		char NameBuf[64];
+		std::snprintf(NameBuf, sizeof(NameBuf), "%s", Def.Name.c_str());
+		ImGui::SetNextItemWidth(200.0f);
+		ImGui::InputText("Name##subgraph_name", NameBuf, sizeof(NameBuf));
+		if (ImGui::IsItemDeactivatedAfterEdit())
+		{
+			const std::string NewName = NameBuf;
+			if (!NewName.empty() && NewName != Def.Name)
+			{
+				PatchModel.RenameSubgraphDefinition(Def.Name, NewName);
+			}
+		}
 
 		// Save the open definition as a reusable .nspg asset in the user dir.
 		// The library panel picks it up on its next Refresh.

@@ -178,6 +178,24 @@ namespace NodeSynth
 		return It != Subgraphs.end() ? It->second : nullptr;
 	}
 
+	bool FGraphModel::RenameSubgraphDefinition(const std::string& OldName, const std::string& NewName)
+	{
+		if (NewName.empty() || NewName == OldName || Subgraphs.count(NewName) > 0)
+		{
+			return false;
+		}
+		auto It = Subgraphs.find(OldName);
+		if (It == Subgraphs.end())
+		{
+			return false;
+		}
+		std::shared_ptr<FSubgraphDefinition> Def = It->second;
+		Subgraphs.erase(It);
+		Def->Name = NewName;
+		Subgraphs[NewName] = std::move(Def);
+		return true;
+	}
+
 	bool FGraphModel::HasIncomingLink(FNodeId Node, uint32_t Port) const
 	{
 		for (const FLink& L : Links)

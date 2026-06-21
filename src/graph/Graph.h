@@ -174,6 +174,12 @@ namespace NodeSynth
 		std::shared_ptr<FSubgraphDefinition> AddSubgraphDefinition(
 			std::shared_ptr<FSubgraphDefinition> Def);
 		std::shared_ptr<FSubgraphDefinition> FindSubgraphDefinition(const std::string& Name) const;
+		// Renames a definition, re-keying the map and updating Def->Name (so the
+		// name stays the single source of truth for serialization). Instances
+		// share the pointer, so their titles update automatically. Returns false
+		// if NewName is empty, equals OldName, collides with another definition,
+		// or OldName isn't found.
+		bool RenameSubgraphDefinition(const std::string& OldName, const std::string& NewName);
 
 		// True if any link terminates at (Node, Port). Used by the property
 		// panel to detect whether a Control input is being driven by an

@@ -188,6 +188,28 @@ namespace
 	}
 }
 
+TEST_CASE("Subgraph definitions: rename re-keys the map and updates the definition", "[subgraph]")
+{
+	FGraphModel M;
+	auto Def = std::make_shared<FSubgraphDefinition>();
+	Def->Name = "Alpha";
+	M.AddSubgraphDefinition(Def);
+
+	// Collision and no-op renames are rejected.
+	auto Other = std::make_shared<FSubgraphDefinition>();
+	Other->Name = "Beta";
+	M.AddSubgraphDefinition(Other);
+	REQUIRE_FALSE(M.RenameSubgraphDefinition("Alpha", "Beta"));   // collision
+	REQUIRE_FALSE(M.RenameSubgraphDefinition("Alpha", "Alpha"));  // no-op
+	REQUIRE_FALSE(M.RenameSubgraphDefinition("Alpha", ""));       // empty
+	REQUIRE_FALSE(M.RenameSubgraphDefinition("Ghost", "Gamma"));  // unknown
+
+	REQUIRE(M.RenameSubgraphDefinition("Alpha", "Gamma"));
+	REQUIRE(M.FindSubgraphDefinition("Alpha") == nullptr);
+	REQUIRE(M.FindSubgraphDefinition("Gamma") == Def);  // same pointer, re-keyed
+	REQUIRE(Def->Name == "Gamma");                       // name updated in place
+}
+
 TEST_CASE("Patch round-trip: embedded subgraph survives save/load and stays audio-identical",
 	"[subgraph][patch]")
 {
