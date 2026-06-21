@@ -753,8 +753,16 @@ namespace NodeSynth
 			{
 				if (ImGui::MenuItem("New Subgraph"))
 				{
-					auto Def = MakeEmptySubgraphDefinition(
-						"Subgraph " + std::to_string(NextSubgraphSerial++));
+					// Pick a name not already used by a definition in this patch,
+					// register it in the patch's definition map (so it serializes
+					// and is shared by every instance), and drop an instance.
+					std::string Name;
+					do
+					{
+						Name = "Subgraph " + std::to_string(NextSubgraphSerial++);
+					}
+					while (Model.FindSubgraphDefinition(Name));
+					auto Def = Model.AddSubgraphDefinition(MakeEmptySubgraphDefinition(Name));
 					auto Instance = std::make_shared<FSubgraph>();
 					Instance->SetDefinition(std::move(Def));
 					SpawnNode(std::move(Instance));

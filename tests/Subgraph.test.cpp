@@ -1,26 +1,41 @@
 #include "io/SubgraphSerializer.h"
 
+#include "dsp/Gain.h"
 #include "dsp/Oscillator.h"
+#include "dsp/Output.h"
+#include "dsp/Subgraph.h"
 #include "dsp/Svf.h"
+#include "dsp/internal/SubgraphBoundary.h"
 #include "graph/SubgraphDefinition.h"
+#include "io/PatchSerializer.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <filesystem>
+#include <memory>
 #include <random>
 
 using Catch::Matchers::WithinAbs;
 using NodeSynth::DeserializeSubgraphDefinition;
 using NodeSynth::EPortType;
+using NodeSynth::FGain;
+using NodeSynth::FGraphModel;
 using NodeSynth::FNodeId;
 using NodeSynth::FOscillator;
+using NodeSynth::FOutput;
+using NodeSynth::FProcessContext;
+using NodeSynth::FSubgraph;
 using NodeSynth::FSubgraphDefinition;
 using NodeSynth::FSubgraphPin;
 using NodeSynth::FSvf;
+using NodeSynth::LoadPatch;
 using NodeSynth::LoadSubgraph;
+using NodeSynth::SavePatch;
 using NodeSynth::SaveSubgraph;
 using NodeSynth::SerializeSubgraphDefinition;
+using NodeSynth::SyncSubgraphBoundaries;
+namespace Internal = NodeSynth::Internal;
 
 namespace
 {
@@ -144,4 +159,127 @@ TEST_CASE("Subgraph definition: empty internal graph round-trips", "[subgraph]")
 	REQUIRE(Loaded->OutputPins.size() == 1);
 	REQUIRE(Loaded->InternalGraph.GetNodes().empty());
 	REQUIRE(Loaded->InternalGraph.GetLinks().empty());
+}
+
+namespace
+{
+	std::filesystem::path TempPatchJsonPath()
+	{
+		std::random_device Rd;
+		std::mt19937_64 Rng(Rd());
+		std::filesystem::path Dir = std::filesystem::temp_directory_path() / "nodesynth_tests";
+		std::filesystem::create_directories(Dir);
+		return Dir / ("subpatch_" + std::to_string(Rng()) + ".json");
+	}
+
+	// Reads the buffer feeding the (single) Output node after processing. The
+	// compiled snapshot shares the model's node instances, so the Output node's
+	// input pointer reflects the last processed block.
+	const float* OutputInputBuffer(FGraphModel& Model)
+	{
+		for (const auto& [Id, Rec] : Model.GetNodes())
+		{
+			if (Rec.Node && std::string(Rec.Node->GetTypeName()) == "Output")
+			{
+				return Rec.Node->GetInputBuffer(0);
+			}
+		}
+		return nullptr;
+	}
+}
+
+TEST_CASE("Patch round-trip: embedded subgraph survives save/load and stays audio-identical",
+	"[subgraph][patch]")
+{
+	constexpr float Freq = 220.0f;
+	constexpr float GainValue = 0.5f;
+
+	// Build a "GainBox" definition (In -> Gain -> Out) registered in the patch.
+	auto Def = std::make_shared<FSubgraphDefinition>();
+	Def->Name = "GainBox";
+	Def->InputPins = { { "In", EPortType::Audio, "" } };
+	Def->OutputPins = { { "Out", EPortType::Audio, "" } };
+	{
+		auto In = std::make_shared<Internal::FSubgraphInputs>();
+		auto Out = std::make_shared<Internal::FSubgraphOutputs>();
+		auto G = std::make_shared<FGain>();
+		G->SetParamValue(FGain::Param_Gain, GainValue);
+		const FNodeId InId = Def->InternalGraph.AddNode(In);
+		const FNodeId OutId = Def->InternalGraph.AddNode(Out);
+		const FNodeId GId = Def->InternalGraph.AddNode(G);
+		SyncSubgraphBoundaries(*Def);
+		REQUIRE(Def->InternalGraph.AddLink(InId, 0, GId, 0) != 0);
+		REQUIRE(Def->InternalGraph.AddLink(GId, 0, OutId, 0) != 0);
+	}
+
+	FGraphModel Patch;
+	Patch.AddSubgraphDefinition(Def);
+	auto Osc = std::make_shared<FOscillator>();
+	Osc->SetParamValue(FOscillator::Param_Frequency, Freq);
+	auto SubNode = std::make_shared<FSubgraph>();
+	SubNode->SetDefinition(Def);
+	auto PatchOut = std::make_shared<FOutput>();
+	const FNodeId OscId = Patch.AddNode(Osc);
+	const FNodeId SubId = Patch.AddNode(SubNode);
+	const FNodeId OutId = Patch.AddNode(PatchOut);
+	REQUIRE(Patch.AddLink(OscId, 0, SubId, 0) != 0);
+	REQUIRE(Patch.AddLink(SubId, 0, OutId, 0) != 0);
+
+	const auto Path = TempPatchJsonPath();
+	REQUIRE(SavePatch(Patch, Path));
+
+	auto Loaded = LoadPatch(Path);
+	REQUIRE(Loaded.has_value());
+
+	// Definition restored into the loaded patch's map.
+	REQUIRE(Loaded->Model.GetSubgraphDefinitions().count("GainBox") == 1);
+
+	// The instance node was rebound to the loaded definition.
+	bool FoundBoundInstance = false;
+	for (const auto& [Id, Rec] : Loaded->Model.GetNodes())
+	{
+		if (auto* S = dynamic_cast<FSubgraph*>(Rec.Node.get()))
+		{
+			REQUIRE(S->GetDefinition() != nullptr);
+			REQUIRE(S->GetDefinition()->Name == "GainBox");
+			FoundBoundInstance = true;
+		}
+	}
+	REQUIRE(FoundBoundInstance);
+
+	// Reference: Osc -> Gain(0.5) -> Output, hand-wired.
+	FGraphModel Ref;
+	auto RefOsc = std::make_shared<FOscillator>();
+	RefOsc->SetParamValue(FOscillator::Param_Frequency, Freq);
+	auto RefGain = std::make_shared<FGain>();
+	RefGain->SetParamValue(FGain::Param_Gain, GainValue);
+	auto RefOut = std::make_shared<FOutput>();
+	const FNodeId R0 = Ref.AddNode(RefOsc);
+	const FNodeId R1 = Ref.AddNode(RefGain);
+	const FNodeId R2 = Ref.AddNode(RefOut);
+	REQUIRE(Ref.AddLink(R0, 0, R1, 0) != 0);
+	REQUIRE(Ref.AddLink(R1, 0, R2, 0) != 0);
+
+	auto LoadedSnap = Loaded->Model.Compile(48000.0);
+	auto RefSnap = Ref.Compile(48000.0);
+	REQUIRE_FALSE(LoadedSnap->OrderedNodes.empty());
+	REQUIRE_FALSE(RefSnap->OrderedNodes.empty());
+
+	FProcessContext Ctx;
+	Ctx.SampleRate = 48000.0;
+	for (int Block = 0; Block < 4; ++Block)
+	{
+		LoadedSnap->Process(Ctx);
+		RefSnap->Process(Ctx);
+		const float* LoadedBuf = OutputInputBuffer(Loaded->Model);
+		const float* RefBuf = OutputInputBuffer(Ref);
+		REQUIRE(LoadedBuf != nullptr);
+		REQUIRE(RefBuf != nullptr);
+		for (uint32_t I = 0; I < Ctx.BlockSize; ++I)
+		{
+			REQUIRE_THAT(LoadedBuf[I], WithinAbs(RefBuf[I], 1e-6f));
+		}
+	}
+
+	std::filesystem::remove(Path);
 }

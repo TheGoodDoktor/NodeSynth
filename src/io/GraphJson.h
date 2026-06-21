@@ -1,5 +1,8 @@
 #pragma once
 
+#include <memory>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -33,4 +36,12 @@ namespace NodeSynth::GraphJson
 	// Loads a "links" array into Model via AddLink. Rejected links are skipped
 	// with a stderr warning.
 	void DeserializeLinks(const nlohmann::json& LinksArray, FGraphModel& Model);
+
+	// Binds every FSubgraph instance in Model to its definition. Walks
+	// NodesArray; for each node carrying a "subgraph_name", finds the matching
+	// node in Model and points it at Defs[name]. Run after both the definitions
+	// map and the nodes are loaded. Names with no matching definition are left
+	// unbound (the instance keeps zero ports).
+	void BindSubgraphInstances(FGraphModel& Model, const nlohmann::json& NodesArray,
+		const std::unordered_map<std::string, std::shared_ptr<FSubgraphDefinition>>& Defs);
 }

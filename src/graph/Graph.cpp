@@ -160,6 +160,24 @@ namespace NodeSynth
 		return (It != Nodes.end()) ? &It->second : nullptr;
 	}
 
+	std::shared_ptr<FSubgraphDefinition> FGraphModel::AddSubgraphDefinition(
+		std::shared_ptr<FSubgraphDefinition> Def)
+	{
+		if (!Def)
+		{
+			return nullptr;
+		}
+		std::shared_ptr<FSubgraphDefinition> Stored = Def;
+		Subgraphs[Def->Name] = std::move(Def);
+		return Stored;
+	}
+
+	std::shared_ptr<FSubgraphDefinition> FGraphModel::FindSubgraphDefinition(const std::string& Name) const
+	{
+		auto It = Subgraphs.find(Name);
+		return It != Subgraphs.end() ? It->second : nullptr;
+	}
+
 	bool FGraphModel::HasIncomingLink(FNodeId Node, uint32_t Port) const
 	{
 		for (const FLink& L : Links)

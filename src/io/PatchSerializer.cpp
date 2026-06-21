@@ -6,7 +6,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include "graph/SubgraphDefinition.h"
 #include "io/GraphJson.h"
+#include "io/SubgraphSerializer.h"
 
 namespace NodeSynth
 {
@@ -66,6 +68,22 @@ namespace NodeSynth
 				Mappings.push_back(std::move(J));
 			}
 			Root["midi_mappings"] = std::move(Mappings);
+		}
+
+		// Subgraph definitions (flat over all definitions the patch uses, keyed
+		// by name). Embedded so the patch is portable even without the source
+		// .nspg assets. Only emitted when present.
+		if (!Model.GetSubgraphDefinitions().empty())
+		{
+			json Subs = json::object();
+			for (const auto& [Name, Def] : Model.GetSubgraphDefinitions())
+			{
+				if (Def)
+				{
+					Subs[Name] = SerializeSubgraphDefinition(*Def);
+				}
+			}
+			Root["subgraphs"] = std::move(Subs);
 		}
 
 		try
@@ -130,12 +148,55 @@ namespace NodeSynth
 			Meta.SampleRateHint = M.value("sample_rate_hint", 0.0);
 		}
 
-		// -- Nodes & links -------------------------------------------------------
+		// -- Subgraph definitions ------------------------------------------------
+		// Load before binding instances. Each definition's internal graph is
+		// built here; nested subgraph instances inside it are bound below once
+		// the whole map exists.
+		if (Root.contains("subgraphs") && Root["subgraphs"].is_object())
+		{
+			for (const auto& [Name, DefJson] : Root["subgraphs"].items())
+			{
+				auto Def = DeserializeSubgraphDefinition(DefJson);
+				if (Def)
+				{
+					Result.Model.AddSubgraphDefinition(
+						std::make_shared<FSubgraphDefinition>(std::move(*Def)));
+				}
+			}
+		}
+
+		// -- Nodes ---------------------------------------------------------------
 		// Shared with the subgraph serializer — same "nodes" / "links" shapes.
 		if (Root.contains("nodes"))
 		{
 			GraphJson::DeserializeNodes(Root["nodes"], Result.Model, &Result.InitialParams);
 		}
+
+		// -- Bind subgraph instances (before links) ------------------------------
+		// Point every FSubgraph instance at its definition NOW, so it exposes
+		// the right ports before the links that reference those ports load —
+		// otherwise AddLink would reject them against a zero-port instance.
+		// (Internal links of nested subgraph definitions were already loaded
+		// inside DeserializeSubgraphDefinition; binding here still gives those
+		// nested instances their definitions for expansion / editing.)
+		const auto& Defs = Result.Model.GetSubgraphDefinitions();
+		if (Root.contains("nodes"))
+		{
+			GraphJson::BindSubgraphInstances(Result.Model, Root["nodes"], Defs);
+		}
+		if (Root.contains("subgraphs") && Root["subgraphs"].is_object())
+		{
+			for (const auto& [Name, Def] : Defs)
+			{
+				const json& DefJson = Root["subgraphs"][Name];
+				if (Def && DefJson.contains("nodes"))
+				{
+					GraphJson::BindSubgraphInstances(Def->InternalGraph, DefJson["nodes"], Defs);
+				}
+			}
+		}
+
+		// -- Links ---------------------------------------------------------------
 		if (Root.contains("links"))
 		{
 			GraphJson::DeserializeLinks(Root["links"], Result.Model);

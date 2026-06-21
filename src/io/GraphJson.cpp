@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <string>
 
+#include "dsp/Subgraph.h"
+#include "graph/SubgraphDefinition.h"
 #include "ui/NodeRegistry.h"
 
 namespace NodeSynth::GraphJson
@@ -53,6 +55,16 @@ namespace NodeSynth::GraphJson
 			}
 		}
 		N["params"] = std::move(Params);
+
+		// Subgraph instances reference their definition by name; the definition
+		// itself is serialized in the patch's "subgraphs" block.
+		if (auto* Sub = dynamic_cast<FSubgraph*>(Rec.Node.get()))
+		{
+			if (Sub->GetDefinition())
+			{
+				N["subgraph_name"] = Sub->GetDefinition()->Name;
+			}
+		}
 		return N;
 	}
 
@@ -193,6 +205,43 @@ namespace NodeSynth::GraphJson
 					"GraphJson: link rejected (%llu:%u -> %llu:%u) — skipping\n",
 					static_cast<unsigned long long>(FromNode), FromPort,
 					static_cast<unsigned long long>(ToNode), ToPort);
+			}
+		}
+	}
+
+	void BindSubgraphInstances(FGraphModel& Model, const json& NodesArray,
+		const std::unordered_map<std::string, std::shared_ptr<FSubgraphDefinition>>& Defs)
+	{
+		if (!NodesArray.is_array())
+		{
+			return;
+		}
+		for (const json& N : NodesArray)
+		{
+			if (!N.contains("subgraph_name"))
+			{
+				continue;
+			}
+			const FNodeId Id = N.value("id", uint64_t{ 0 });
+			const std::string Name = N.value("subgraph_name", std::string{});
+			FNodeRecord* Rec = Model.FindNode(Id);
+			if (!Rec || !Rec->Node)
+			{
+				continue;
+			}
+			if (auto* Sub = dynamic_cast<FSubgraph*>(Rec->Node.get()))
+			{
+				auto It = Defs.find(Name);
+				if (It != Defs.end())
+				{
+					Sub->SetDefinition(It->second);
+				}
+				else
+				{
+					std::fprintf(stderr,
+						"GraphJson: subgraph instance id %llu references unknown definition '%s'\n",
+						static_cast<unsigned long long>(Id), Name.c_str());
+				}
 			}
 		}
 	}

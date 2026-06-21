@@ -12,6 +12,7 @@ namespace NodeSynth
 	class FEditHistory;
 	class FVoiceAllocator;
 	class FMidiCC;
+	struct FSubgraphDefinition;
 
 	struct FNodeRecord
 	{
@@ -162,6 +163,18 @@ namespace NodeSynth
 		const std::vector<FLink>& GetLinks() const { return Links; }
 		FNodeRecord* FindNode(FNodeId Id);
 
+		// Subgraph definitions referenced by this patch, keyed by name. The
+		// authoritative store for serialization; FSubgraph instances share these
+		// pointers (so editing a definition updates every instance). Nested
+		// subgraphs live here too — the map is flat over all definitions a patch
+		// uses. A subgraph's own InternalGraph leaves this map empty.
+		const std::unordered_map<std::string, std::shared_ptr<FSubgraphDefinition>>&
+			GetSubgraphDefinitions() const { return Subgraphs; }
+		// Registers (or replaces by Name) a definition. Returns the stored ptr.
+		std::shared_ptr<FSubgraphDefinition> AddSubgraphDefinition(
+			std::shared_ptr<FSubgraphDefinition> Def);
+		std::shared_ptr<FSubgraphDefinition> FindSubgraphDefinition(const std::string& Name) const;
+
 		// True if any link terminates at (Node, Port). Used by the property
 		// panel to detect whether a Control input is being driven by an
 		// upstream signal so the corresponding param slider can switch to a
@@ -224,6 +237,11 @@ namespace NodeSynth
 		std::unordered_map<FNodeId, FNodeRecord> Nodes;
 		std::vector<FLink> Links;
 		std::vector<FMidiMapping> MidiMappings;
+		// shared_ptr<FSubgraphDefinition> is a complete type even though the
+		// pointee is only forward-declared here; the deleter is captured where
+		// the definition is created (PatchSerializer / Editor), so destruction
+		// is safe in any TU.
+		std::unordered_map<std::string, std::shared_ptr<FSubgraphDefinition>> Subgraphs;
 		FNodeId NextNodeId = 1;
 		FLinkId NextLinkId = 1;
 		FEditHistory* History = nullptr;
