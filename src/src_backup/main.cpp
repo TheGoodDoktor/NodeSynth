@@ -30,7 +30,6 @@
 #include "graph/Graph.h"
 #include "io/PatchSerializer.h"
 #include "io/PresetBrowser.h"
-#include "io/SubgraphBrowser.h"
 #include "midi/MidiDeviceManager.h"
 #include "ui/Editor.h"
 #include "ui/Palette.h"
@@ -327,12 +326,6 @@ int main()
 	const std::filesystem::path UserPresetDir = GetSettingsDir() / "user_presets";
 	FPresetIndex PresetIndex = BuildPresetIndex(BundledPresetDir, UserPresetDir);
 	std::filesystem::path PendingPresetLoad;
-
-	// Subgraph asset library — bundled (<exe-dir>/subgraphs/) plus user
-	// (~/.nodesynth/subgraphs/). Drag an entry onto the canvas to insert an
-	// instance; the editor's drop target loads the .nspg and embeds it.
-	std::vector<FSubgraphAsset> SubgraphLibrary =
-		BuildSubgraphLibrary(GetBundledSubgraphDir(), GetUserSubgraphDir());
 
 	FAudioState AudioState;
 
@@ -822,43 +815,6 @@ int main()
 
 		ImGui::Begin("MIDI Mappings");
 		EditorPanel.DrawMidiMappingsPanel(Model);
-		ImGui::End();
-
-		// Subgraph Library — drag an entry onto the graph to insert an instance.
-		ImGui::Begin("Subgraph Library");
-		if (ImGui::SmallButton("Refresh"))
-		{
-			SubgraphLibrary = BuildSubgraphLibrary(GetBundledSubgraphDir(), GetUserSubgraphDir());
-		}
-		ImGui::SameLine();
-		ImGui::TextDisabled("Drag onto the graph to add.");
-		ImGui::Separator();
-		if (SubgraphLibrary.empty())
-		{
-			ImGui::TextDisabled("No .nspg assets found.");
-			ImGui::TextDisabled("Dive into a subgraph and");
-			ImGui::TextDisabled("\"Save as Asset\" to add one.");
-		}
-		for (size_t I = 0; I < SubgraphLibrary.size(); ++I)
-		{
-			const FSubgraphAsset& Asset = SubgraphLibrary[I];
-			ImGui::PushID(static_cast<int>(I));
-			ImGui::Selectable(Asset.DisplayName.c_str());
-			if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
-			{
-				const std::string PathStr = Asset.FullPath.string();
-				ImGui::SetDragDropPayload(SubgraphAssetPayloadId,
-					PathStr.c_str(), PathStr.size() + 1);
-				ImGui::TextUnformatted(Asset.DisplayName.c_str());
-				ImGui::EndDragDropSource();
-			}
-			if (Asset.bBundled)
-			{
-				ImGui::SameLine();
-				ImGui::TextDisabled("(bundled)");
-			}
-			ImGui::PopID();
-		}
 		ImGui::End();
 
 		if (bGraphChanged)
