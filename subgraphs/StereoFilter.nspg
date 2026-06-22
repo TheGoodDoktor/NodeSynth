@@ -1,0 +1,83 @@
+{
+  "input_pins": [
+    {
+      "description": "Signal to filter.",
+      "name": "Audio",
+      "type": "audio"
+    },
+    {
+      "description": "Cutoff frequency (Hz).",
+      "name": "Cutoff",
+      "type": "control"
+    },
+    {
+      "description": "Resonance / Q (0..1).",
+      "name": "Resonance",
+      "type": "control"
+    }
+  ],
+  "links": [
+    {
+      "from_node": 1,
+      "from_port": 0,
+      "id": 1,
+      "to_node": 2,
+      "to_port": 0
+    },
+    {
+      "from_node": 1,
+      "from_port": 1,
+      "id": 2,
+      "to_node": 2,
+      "to_port": 1
+    },
+    {
+      "from_node": 1,
+      "from_port": 2,
+      "id": 3,
+      "to_node": 2,
+      "to_port": 2
+    },
+    {
+      "from_node": 2,
+      "from_port": 0,
+      "id": 4,
+      "to_node": 3,
+      "to_port": 0
+    }
+  ],
+  "name": "StereoFilter",
+  "nodes": [
+    {
+      "id": 1,
+      "params": {},
+      "type": "_SubgraphInputs",
+      "x": -260.0,
+      "y": 40.0
+    },
+    {
+      "id": 2,
+      "params": {
+        "Cutoff": 1200.0,
+        "Resonance": 0.6000000238418579
+      },
+      "type": "SVF",
+      "x": 20.0,
+      "y": 40.0
+    },
+    {
+      "id": 3,
+      "params": {},
+      "type": "_SubgraphOutputs",
+      "x": 300.0,
+      "y": 40.0
+    }
+  ],
+  "output_pins": [
+    {
+      "description": "Low-pass filtered output.",
+      "name": "Audio",
+      "type": "audio"
+    }
+  ]
+}

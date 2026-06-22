@@ -1,6 +1,8 @@
 #pragma once
 
+#include <memory>
 #include <string>
+#include <vector>
 
 #include "graph/AudioCommand.h"
 #include "graph/EditHistory.h"
@@ -12,6 +14,7 @@ namespace ax::NodeEditor { struct EditorContext; }
 namespace NodeSynth
 {
 	class FMidiDeviceManager;
+	struct FSubgraphDefinition;
 
 	class FGraphEditorPanel
 	{
@@ -46,17 +49,18 @@ namespace NodeSynth
 
 		// Resets the editor's first-frame state so node positions in a freshly
 		// loaded model get pushed back into the imgui-node-editor canvas.
-		// Also clears the per-node drag-tracking caches: otherwise the next
-		// frame's drag detector compares the new positions against stale
-		// LastX/Y values, mistakes the model-driven reseed for a user drag,
-		// and pushes a phantom SetNodePosition entry that drops the redo stack.
-		void OnModelReplaced()
-		{
-			bFirstFrame = true;
-			NodeDragStates.clear();
-		}
+		// Also clears the per-node drag-tracking caches (otherwise the next
+		// frame's drag detector compares new positions against stale LastX/Y
+		// values, mistakes the model-driven reseed for a user drag, and pushes
+		// a phantom SetNodePosition entry that drops the redo stack) and pops
+		// any open subgraph levels (a freshly loaded patch has different
+		// subgraph definitions). Defined in Editor.cpp because it destroys
+		// imgui-node-editor contexts.
+		void OnModelReplaced();
 
-		// Renders parameter sliders for the currently selected node.
+		// Renders parameter sliders for the currently selected node. When dived
+		// into a subgraph, the subgraph's pin-management panel is shown above
+		// the selected-node properties.
 		void DrawPropertyPanel(FGraphModel& Model);
 
 		// Renders a persistent UI for any FVirtualKeyboard nodes in the graph,
@@ -89,6 +93,72 @@ namespace NodeSynth
 		}
 
 	private:
+		// One open subgraph nesting level. The base (patch) level uses Context
+		// below; each dive pushes a level with its own imgui-node-editor context
+		// (so pan / zoom / selection are per-level) editing a definition's
+		// internal graph. Heap-allocated via unique_ptr so a vector realloc
+		// never invalidates the context / model pointers handed to callers.
+		struct FSubgraphLevel
+		{
+			ax::NodeEditor::EditorContext* Context = nullptr;
+			FGraphModel* Model = nullptr;                       // → Definition->InternalGraph
+			std::shared_ptr<FSubgraphDefinition> Definition;   // keeps it alive
+			std::string Name;
+		};
+		std::vector<std::unique_ptr<FSubgraphLevel>> SubgraphStack;
+
+		// Pushes a new level editing Def's internal graph. Reset deferred nav
+		// state is applied at the end of Draw so it never mutates the stack
+		// mid-frame.
+		void EnterSubgraph(const std::shared_ptr<FSubgraphDefinition>& Def);
+		// Destroys subgraph levels until exactly KeepDepth remain (0 = patch).
+		void PopToLevel(int32_t KeepDepth);
+
+		// Ctrl+G: wraps the current node selection into a new subgraph instance.
+		// Links crossing the selection boundary are auto-promoted to pins
+		// (incoming → input pins, outgoing → output pins, deduped by source
+		// port). Forbidden nodes (Output / VoiceAllocator / boundaries) are
+		// dropped from the selection. Base level only; not undoable in v1.
+		// Returns true if it created a subgraph (caller should recompile).
+		bool MakeSubgraphFromSelection(FGraphModel& PatchModel);
+
+		// Pin-management UI for the open subgraph definition: add / rename /
+		// reorder / remove input + output pins. Edits propagate to the boundary
+		// nodes and to every instance (in PatchModel and any open parent level)
+		// so positional port links stay consistent. Sets bSubgraphParamDirty on
+		// a structural change so the patch recompiles.
+		void DrawSubgraphPinPanel(FGraphModel& PatchModel, FSubgraphDefinition& Def);
+
+		// "Add pin" type selectors (0 = Audio, 1 = Control) for the pin panel.
+		int32_t AddInputPinType = 0;
+		int32_t AddOutputPinType = 0;
+		// Deferred pin removal (applied after the pin lists draw, so the pin
+		// vector isn't mutated mid-iteration). A removal with connected links
+		// routes through a confirmation modal first.
+		bool bConfirmPinRemoveIsInput = false;
+		int32_t ConfirmPinRemoveIndex = -1;
+		uint32_t ConfirmPinRemoveLinkCount = 0;
+		bool bPinRemoveConfirmed = false;
+
+		// Deferred navigation, captured during Draw and applied after the
+		// editor canvas closes. PendingDive non-null = dive into it next; a
+		// non-negative PendingPopTo = pop to that depth. -1 = no pop pending.
+		std::shared_ptr<FSubgraphDefinition> PendingDive;
+		int32_t PendingPopTo = -1;
+
+		// Serial for naming new subgraphs created from the editor ("Subgraph 1",
+		// "Subgraph 2", …). Unique names keep the recursion check unambiguous.
+		int32_t NextSubgraphSerial = 1;
+
+		// Set when a param is edited inside a subgraph. Unlike base-level edits
+		// (whose SetParam command reaches the audio node directly), a subgraph
+		// internal node only exists in the audio graph as a compiled clone with
+		// a different id, so the queued command is dropped — the change applies
+		// on recompile. The flag folds into the next Draw's "graph changed"
+		// return so main.cpp recompiles the patch (re-expanding the edited
+		// definition). One-frame latency; cheaper than recompiling every frame.
+		bool bSubgraphParamDirty = false;
+
 		ax::NodeEditor::EditorContext* Context = nullptr;
 		bool bFirstFrame = true;
 		FAudioCommandRing* CommandRing = nullptr;

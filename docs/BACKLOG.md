@@ -8,15 +8,15 @@ When work starts on an item, leave the entry here until it ships, then move it t
 
 ## Open
 
-### Subgraphs
-- **Plan:** [`PLAN-SUBGRAPHS.md`](PLAN-SUBGRAPHS.md)
-- **Summary:** New `FSubgraph` node that wraps an internal graph and exposes user-declared input/output pins. Edited via dive-into-with-breadcrumb navigation; saved as standalone `.nspg` assets and embedded in patches. Compiles via inline macro-expansion so the audio path stays as cheap as a hand-wired equivalent. Mental model: Unreal Blueprint Functions.
-- **Estimate:** ~2–3 weeks, six sub-phases (SG.1–SG.6).
-- **Status:** Plan complete. Not yet started.
+_(none)_
 
 ---
 
 ## Shipped
+
+### Subgraphs
+- **Plan:** [`PLAN-SUBGRAPHS.md`](PLAN-SUBGRAPHS.md)
+- **Summary:** `FSubgraph` node wrapping an internal graph with user-declared input/output pins. Edited via dive-into-with-breadcrumb navigation; saved as standalone `.nspg` assets and embedded in patches; compiled by inline macro-expansion (zero runtime overhead). All six sub-phases shipped (SG.1 definition + serialization, SG.2 boundary nodes + compile expansion, SG.3 dive-in editor + breadcrumb, SG.4 pin management UI, SG.5 patch embedding + `.nspg` asset library + drag-drop, SG.6 bundled `StereoFilter` + `Lead/Subgraph Demo` preset + Ctrl+G "Make Subgraph from Selection" + Esc-to-pop). Built on `feature/subgraphs`. Deferred to a v2: per-level undo/redo inside subgraphs (§1.12), full round-trip of *nested* subgraph instances' internal links, "Reload from Asset".
 
 ### MIDI CC Source Node
 - **Plan:** [`PLAN-MIDI-CC.md`](PLAN-MIDI-CC.md)

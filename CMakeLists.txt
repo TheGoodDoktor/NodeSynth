@@ -264,6 +264,31 @@ if(EXISTS "${NODESYNTH_SIDFILES_SOURCE_DIR}")
     endif()
 endif()
 
+# ---- Bundled subgraphs ------------------------------------------------------
+# Same pattern as presets/wavetables/sids — mirror the source-tree subgraphs/
+# folder of *.nspg assets next to the running exe so the Subgraph Library sees
+# them. Regenerated via `nodesynth_tests.exe "[subgraph-emit]"`.
+set(NODESYNTH_SUBGRAPH_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/subgraphs")
+if(EXISTS "${NODESYNTH_SUBGRAPH_SOURCE_DIR}")
+    if(APPLE)
+        file(GLOB_RECURSE NODESYNTH_SUBGRAPH_FILES CONFIGURE_DEPENDS
+            "${NODESYNTH_SUBGRAPH_SOURCE_DIR}/*.nspg")
+        foreach(SG_FILE IN LISTS NODESYNTH_SUBGRAPH_FILES)
+            file(RELATIVE_PATH SG_REL "${NODESYNTH_SUBGRAPH_SOURCE_DIR}" "${SG_FILE}")
+            get_filename_component(SG_REL_DIR "${SG_REL}" DIRECTORY)
+            target_sources(nodesynth PRIVATE "${SG_FILE}")
+            set_source_files_properties("${SG_FILE}" PROPERTIES
+                MACOSX_PACKAGE_LOCATION "Resources/subgraphs/${SG_REL_DIR}")
+        endforeach()
+    else()
+        add_custom_command(TARGET nodesynth POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${NODESYNTH_SUBGRAPH_SOURCE_DIR}"
+                "$<TARGET_FILE_DIR:nodesynth>/subgraphs"
+            COMMENT "Copying bundled subgraphs next to nodesynth binary")
+    endif()
+endif()
+
 # ---- Tests (Catch2 v3) ------------------------------------------------------
 option(NODESYNTH_BUILD_TESTS "Build NodeSynth unit tests" ON)
 if(NODESYNTH_BUILD_TESTS)
@@ -281,7 +306,10 @@ if(NODESYNTH_BUILD_TESTS)
     add_executable(nodesynth_tests ${NODESYNTH_TEST_SOURCES}
         ${CMAKE_CURRENT_SOURCE_DIR}/src/graph/Graph.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/graph/EditHistory.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/graph/SubgraphOps.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/io/GraphJson.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/io/PatchSerializer.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/io/SubgraphSerializer.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/ui/NodeRegistry.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/midi/MidiDeviceManager.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/sid/SidEmulator.cpp

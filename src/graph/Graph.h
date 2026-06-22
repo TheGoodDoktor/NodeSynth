@@ -12,6 +12,7 @@ namespace NodeSynth
 	class FEditHistory;
 	class FVoiceAllocator;
 	class FMidiCC;
+	struct FSubgraphDefinition;
 
 	struct FNodeRecord
 	{
@@ -162,6 +163,24 @@ namespace NodeSynth
 		const std::vector<FLink>& GetLinks() const { return Links; }
 		FNodeRecord* FindNode(FNodeId Id);
 
+		// Subgraph definitions referenced by this patch, keyed by name. The
+		// authoritative store for serialization; FSubgraph instances share these
+		// pointers (so editing a definition updates every instance). Nested
+		// subgraphs live here too — the map is flat over all definitions a patch
+		// uses. A subgraph's own InternalGraph leaves this map empty.
+		const std::unordered_map<std::string, std::shared_ptr<FSubgraphDefinition>>&
+			GetSubgraphDefinitions() const { return Subgraphs; }
+		// Registers (or replaces by Name) a definition. Returns the stored ptr.
+		std::shared_ptr<FSubgraphDefinition> AddSubgraphDefinition(
+			std::shared_ptr<FSubgraphDefinition> Def);
+		std::shared_ptr<FSubgraphDefinition> FindSubgraphDefinition(const std::string& Name) const;
+		// Renames a definition, re-keying the map and updating Def->Name (so the
+		// name stays the single source of truth for serialization). Instances
+		// share the pointer, so their titles update automatically. Returns false
+		// if NewName is empty, equals OldName, collides with another definition,
+		// or OldName isn't found.
+		bool RenameSubgraphDefinition(const std::string& OldName, const std::string& NewName);
+
 		// True if any link terminates at (Node, Port). Used by the property
 		// panel to detect whether a Control input is being driven by an
 		// upstream signal so the corresponding param slider can switch to a
@@ -172,6 +191,22 @@ namespace NodeSynth
 		// flag untouched) if the node id is unknown or the node's Clone() is
 		// nullptr (non-cloneable types like MIDI input or virtual keyboard).
 		bool SetNodePerVoice(FNodeId Id, bool bPerVoice);
+
+		// Subgraph pin maintenance. When a pin is removed from / reordered on a
+		// subgraph, the boundary nodes (inside the definition) and every
+		// instance (in any patch) gain or lose a positional port, so the links
+		// referencing those ports have to be fixed up. bOutputPort selects the
+		// producer side (FromNode/FromPort) vs the consumer side
+		// (ToNode/ToPort) of the named node. These mutate Links directly and do
+		// NOT record edit history (pin edits aren't undoable in v1, §1.12).
+		//   - RemovePortAndShiftLinks: drop links at RemovedPort; decrement the
+		//     port index of links above it.
+		//   - SwapPortLinks: swap the port index of links at PortA and PortB.
+		//   - CountPortLinks: how many links reference (Node, Port) on that side
+		//     (used to warn before a destructive pin removal).
+		void RemovePortAndShiftLinks(FNodeId Node, bool bOutputPort, uint32_t RemovedPort);
+		void SwapPortLinks(FNodeId Node, bool bOutputPort, uint32_t PortA, uint32_t PortB);
+		uint32_t CountPortLinks(FNodeId Node, bool bOutputPort, uint32_t Port) const;
 
 		// Pre-flight check for a proposed link, mirroring the polyphony rule
 		// enforced in Compile. Returns empty string if the link would compile,
@@ -191,9 +226,28 @@ namespace NodeSynth
 		const FMidiMapping* FindMidiMapping(FNodeId NodeId, uint32_t ParamIndex) const;
 
 	private:
+		// Subgraph compile pipeline (SG.2, see Graph.cpp / docs/PLAN-SUBGRAPHS.md).
+		// ExpandSubgraphs macro-inlines every FSubgraph instance into its
+		// internal nodes within the working copies, propagating the instance's
+		// per-voice flag. Returns false (with LastCompileError set) on a
+		// subgraph validation failure (recursion or a forbidden node type).
+		// CompileFlattened then runs the normal partition / DFS / plumb on the
+		// already-flattened graph.
+		bool ExpandSubgraphs(std::unordered_map<FNodeId, FNodeRecord>& WorkNodes,
+			std::vector<FLink>& WorkLinks);
+		std::shared_ptr<FAudioGraph> CompileFlattened(
+			const std::unordered_map<FNodeId, FNodeRecord>& Nodes,
+			const std::vector<FLink>& Links,
+			double SampleRate);
+
 		std::unordered_map<FNodeId, FNodeRecord> Nodes;
 		std::vector<FLink> Links;
 		std::vector<FMidiMapping> MidiMappings;
+		// shared_ptr<FSubgraphDefinition> is a complete type even though the
+		// pointee is only forward-declared here; the deleter is captured where
+		// the definition is created (PatchSerializer / Editor), so destruction
+		// is safe in any TU.
+		std::unordered_map<std::string, std::shared_ptr<FSubgraphDefinition>> Subgraphs;
 		FNodeId NextNodeId = 1;
 		FLinkId NextLinkId = 1;
 		FEditHistory* History = nullptr;
