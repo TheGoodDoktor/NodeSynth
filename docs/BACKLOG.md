@@ -14,6 +14,10 @@ _(none)_
 
 ## Shipped
 
+### Vocoder + Mic Input
+- **Plan:** [`PLAN-VOCODER.md`](PLAN-VOCODER.md)
+- **Summary:** `FVocoder` channel vocoder (Effects) — modulator → log-spaced analysis band-pass bank → per-band envelope followers; carrier → matching synthesis bank scaled per-band, summed. 4-pole bands (two cascaded `FBiquadCoeffs::SetBandpass` biquads), mono detection / stereo synthesis, 8/16/24 bands, Attack/Release/Formant/Mix/Output params, zero `Process` allocation. `FMicInput` live-capture source (Sources) — owns its own miniaudio capture device, callback thread → lock-free `FMicRing` (`src/audio/`) → drained in `Process`; miniaudio behind a PIMPL so the header stays clean; RT-safe `SetParamValue` with UI-thread-only device open (`SetDevice` + custom `MicInputUI`); non-cloneable. Bundled `FX/Vocoder Talk` preset. Sub-phases V.1 (bandpass primitive) → V.4 (registry, icons, preset, docs). Built on `feature/vocoder`. Deferred to v2: unvoiced/sibilance path, adjustable band Q, envelope freeze, capture/playback sample-rate-tracking resample.
+
 ### Subgraphs
 - **Plan:** [`PLAN-SUBGRAPHS.md`](PLAN-SUBGRAPHS.md)
 - **Summary:** `FSubgraph` node wrapping an internal graph with user-declared input/output pins. Edited via dive-into-with-breadcrumb navigation; saved as standalone `.nspg` assets and embedded in patches; compiled by inline macro-expansion (zero runtime overhead). All six sub-phases shipped (SG.1 definition + serialization, SG.2 boundary nodes + compile expansion, SG.3 dive-in editor + breadcrumb, SG.4 pin management UI, SG.5 patch embedding + `.nspg` asset library + drag-drop, SG.6 bundled `StereoFilter` + `Lead/Subgraph Demo` preset + Ctrl+G "Make Subgraph from Selection" + Esc-to-pop). Built on `feature/subgraphs`. Deferred to a v2: per-level undo/redo inside subgraphs (§1.12), full round-trip of *nested* subgraph instances' internal links, "Reload from Asset".

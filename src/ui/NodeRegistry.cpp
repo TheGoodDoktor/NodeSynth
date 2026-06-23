@@ -24,6 +24,7 @@
 #include "dsp/Limiter.h"
 #include "dsp/Lfo.h"
 #include "dsp/Meter.h"
+#include "dsp/MicInput.h"
 #include "dsp/MidiCC.h"
 #include "dsp/Mixer.h"
 #include "dsp/ModulationMatrix.h"
@@ -42,6 +43,7 @@
 #include "dsp/Svf.h"
 #include "dsp/Tremolo.h"
 #include "dsp/Vca.h"
+#include "dsp/Vocoder.h"
 #include "dsp/VoiceAllocator.h"
 #include "dsp/Waveshaper.h"
 #include "dsp/WavetableOscillator.h"
@@ -80,6 +82,15 @@ namespace NodeSynth
 				"Frequency into Freq.",
 				"Sources",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FWavetableOscillator>(); },
+			},
+			{
+				"MicInput", "Mic Input",
+				"Live microphone / line capture. Owns its own audio-capture\n"
+				"device; pick one in the property panel. Mono output — wire it\n"
+				"into a Vocoder's Modulator for a talking synth. Use headphones\n"
+				"to avoid feedback howl.",
+				"Sources",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FMicInput>(); },
 			},
 			{
 				"SidPlayer", "SID Player",
@@ -328,6 +339,15 @@ namespace NodeSynth
 				"bell timbre.",
 				"Effects",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FRingMod>(); },
+			},
+			{
+				"Vocoder", "Vocoder",
+				"Channel vocoder. Imposes the modulator's moving spectrum onto\n"
+				"the carrier — the 'talking synth'. Wire a rich Carrier (saw /\n"
+				"square oscillator) and a Modulator (a voice via Mic Input).\n"
+				"8 / 16 / 24 bands, attack / release, and a formant-shift knob.",
+				"Effects",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FVocoder>(); },
 			},
 			{
 				"StereoWidener", "Stereo Widener",

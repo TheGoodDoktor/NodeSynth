@@ -908,6 +908,53 @@ namespace NodeSynth
 			DrawWave(Min.y + H * 0.80f,  0.0f,      2, 1.00f);  // front: saw, full
 		}
 
+		void DrawMicIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Capsule mic head on a stand: rounded body, a U-shaped cradle, and
+			// a short stem + base. Reads as "microphone" at a glance.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float Cx = (Min.x + Max.x) * 0.5f;
+			const float HeadW = W * 0.26f;
+			const float HeadTop = Min.y + H * 0.16f;
+			const float HeadBot = Min.y + H * 0.56f;
+			Draw->AddRectFilled(ImVec2(Cx - HeadW, HeadTop), ImVec2(Cx + HeadW, HeadBot),
+				Col, HeadW, 0);
+			// Cradle arc below the head.
+			Draw->PathArcTo(ImVec2(Cx, HeadBot - HeadW), HeadW * 1.7f, 0.25f, 3.14159265f - 0.25f, 16);
+			Draw->PathStroke(Col, 0, 1.5f);
+			// Stem + base.
+			const float StemTop = HeadBot + HeadW * 0.7f;
+			const float Base = Max.y - H * 0.16f;
+			Draw->AddLine(ImVec2(Cx, StemTop), ImVec2(Cx, Base), Col, 1.5f);
+			Draw->AddLine(ImVec2(Cx - W * 0.16f, Base), ImVec2(Cx + W * 0.16f, Base), Col, 1.5f);
+		}
+
+		void DrawVocoderIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Filter-bank spectrum: several filled vertical bars under a bell-
+			// shaped envelope — the vocoder's band-analysis signature. Filled
+			// bars distinguish it from the Sequencer's thin step lines and the
+			// Equalizer's slider knobs.
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.12f;
+			const float R = Max.x - W * 0.12f;
+			const float Bottom = Max.y - H * 0.18f;
+			constexpr int32_t NumBars = 7;
+			const float Slot = (R - L) / NumBars;
+			const float BarW = Slot * 0.55f;
+			for (int32_t I = 0; I < NumBars; ++I)
+			{
+				// Bell envelope peaking at the centre band.
+				const float T = (static_cast<float>(I) - (NumBars - 1) * 0.5f) / (NumBars * 0.5f);
+				const float Env = std::exp(-T * T * 2.2f);
+				const float BarH = (H * 0.62f) * (0.22f + 0.78f * Env);
+				const float X0 = L + I * Slot + (Slot - BarW) * 0.5f;
+				Draw->AddRectFilled(ImVec2(X0, Bottom - BarH), ImVec2(X0 + BarW, Bottom), Col);
+			}
+		}
+
 		void DrawDefaultIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
 		{
 			// Generic node: a small square outline.
@@ -1084,6 +1131,14 @@ namespace NodeSynth
 		{
 			DrawModMatrixIcon(Draw, Min, Max, ColMath);
 		}
+		else if (std::strcmp(TypeName, "MicInput") == 0)
+		{
+			DrawMicIcon(Draw, Min, Max, ColInput);
+		}
+		else if (std::strcmp(TypeName, "Vocoder") == 0)
+		{
+			DrawVocoderIcon(Draw, Min, Max, ColEffect);
+		}
 		else
 		{
 			DrawDefaultIcon(Draw, Min, Max, ColAmp);
@@ -1147,6 +1202,8 @@ namespace NodeSynth
 		if (std::strcmp(TypeName, "WavetableOscillator") == 0) { return ColSource; }
 		if (std::strcmp(TypeName, "MidiCC") == 0)         { return ColInput; }
 		if (std::strcmp(TypeName, "ModulationMatrix") == 0) { return ColMath; }
+		if (std::strcmp(TypeName, "MicInput") == 0)       { return ColInput; }
+		if (std::strcmp(TypeName, "Vocoder") == 0)        { return ColEffect; }
 		return ColAmp;
 	}
 

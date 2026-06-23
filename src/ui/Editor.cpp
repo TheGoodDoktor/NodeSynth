@@ -29,6 +29,7 @@
 #include "dsp/Output.h"
 #include "dsp/Scope.h"
 #include "dsp/Sequencer.h"
+#include "dsp/MicInput.h"
 #include "dsp/MidiCC.h"
 #include "dsp/ModulationMatrix.h"
 #include "dsp/SidPlayer.h"
@@ -40,6 +41,7 @@
 #include "midi/MidiDeviceManager.h"
 #include "ui/AdsrUI.h"
 #include "ui/MeterUI.h"
+#include "ui/MicInputUI.h"
 #include "ui/NodeIcons.h"
 #include "ui/NodeRegistry.h"
 #include "ui/Palette.h"
@@ -1468,6 +1470,10 @@ namespace NodeSynth
 		if (auto* Matrix = dynamic_cast<FModulationMatrix*>(Rec->Node.get()))
 		{
 			DrawModMatrixUI(*Matrix, Rec->Id, Model, Sink, ActiveHistory);
+		}
+		if (auto* Mic = dynamic_cast<FMicInput*>(Rec->Node.get()))
+		{
+			DrawMicInputUI(*Mic);
 		}
 	}
 
