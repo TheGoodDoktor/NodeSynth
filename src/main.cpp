@@ -41,7 +41,7 @@ namespace
 {
 	struct FAudioState
 	{
-		std::shared_ptr<FAudioGraph> Graph{ nullptr };
+		std::atomic<std::shared_ptr<FAudioGraph>> Graph{ nullptr };
 		std::atomic<double> SampleRate{ 48000.0 };
 		FAudioCommandRing Commands;
 		FMidiDeviceManager MidiManager;
@@ -51,7 +51,7 @@ namespace
 	{
 		FAudioState* State = static_cast<FAudioState*>(Device->pUserData);
 		std::shared_ptr<FAudioGraph> Graph =
-			std::atomic_load_explicit(&State->Graph, std::memory_order_acquire);
+			State->Graph.load(std::memory_order_acquire);
 
 		float* Samples = static_cast<float*>(Output);
 		const ma_uint32 Channels = Device->playback.channels;
@@ -353,7 +353,7 @@ int main()
 			AudioState.MidiManager.SetVoiceAllocators({});
 			AudioState.MidiManager.SetMidiCcNodes({});
 		}
-		std::atomic_store_explicit(&AudioState.Graph, std::move(NewSnapshot),
+		AudioState.Graph.store(std::move(NewSnapshot),
 			std::memory_order_release);
 	};
 
@@ -599,7 +599,6 @@ int main()
 		// Hotkeys: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z. Gated on no active text input
 		// so they don't fire while typing in a path popup.
 		{
-			const ImGuiIO& IO = ImGui::GetIO();
 			const bool bCtrl = IO.KeyCtrl || IO.KeySuper;  // Cmd on macOS
 			if (!IO.WantTextInput && bCtrl)
 			{

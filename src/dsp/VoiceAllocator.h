@@ -164,13 +164,13 @@ namespace NodeSynth
 		// voice-i's slice into voice-i's downstream clone. Standard
 		// GetOutputBuffer(port) returns voice 0's buffer (back-compat with mono
 		// patches that wire the allocator straight into mono nodes).
-		float* GetVoiceOutputBuffer(uint32_t PortIndex, size_t VoiceIndex)
+		float* GetVoiceOutputBuffer(uint32_t PortIndex, size_t InVoiceIndex)
 		{
-			if (PortIndex >= NumPorts || VoiceIndex >= MaxVoices)
+			if (PortIndex >= NumPorts || InVoiceIndex >= MaxVoices)
 			{
 				return nullptr;
 			}
-			return VoiceBuffers[VoiceIndex][PortIndex];
+			return VoiceBuffers[InVoiceIndex][PortIndex];
 		}
 
 		float* GetOutputBuffer(uint32_t Index, uint32_t Channel = 0) override

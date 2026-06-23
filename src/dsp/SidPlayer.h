@@ -159,7 +159,7 @@ namespace NodeSynth
 
 		// Latest engine snapshot, atomic-swapped on file load. Audio thread
 		// loads once per Process; UI thread builds + stores.
-		std::shared_ptr<FSidEmulator> ActiveEmulator{ nullptr };
+		std::atomic<std::shared_ptr<FSidEmulator>> ActiveEmulator{ nullptr };
 
 		// Parsed-tune state held alongside the emulator. Captured during file
 		// load and mirrored into Status for the UI panel.

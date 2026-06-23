@@ -187,8 +187,7 @@ namespace NodeSynth
 			WavetablePath = Value;
 			if (Value.empty())
 			{
-				std::atomic_store_explicit(&CurrentTable,
-					std::shared_ptr<FWavetableData>{},
+				CurrentTable.store(std::shared_ptr<FWavetableData>{},
 					std::memory_order_release);
 				return;
 			}
@@ -200,15 +199,14 @@ namespace NodeSynth
 			std::shared_ptr<FWavetableData> Loaded = LoadWavetable(Resolved);
 			// Even on failure we update the path string so the UI shows what
 			// the user typed. The audio thread sees nullptr and outputs silence.
-			std::atomic_store_explicit(&CurrentTable, std::move(Loaded),
-				std::memory_order_release);
+			CurrentTable.store(std::move(Loaded), std::memory_order_release);
 		}
 
 		// UI accessor: the current loaded wavetable, or nullptr if none.
 		// Returned shared_ptr keeps the data alive for the caller's scope.
 		std::shared_ptr<FWavetableData> GetCurrentTable() const
 		{
-			return std::atomic_load_explicit(&CurrentTable, std::memory_order_acquire);
+			return CurrentTable.load(std::memory_order_acquire);
 		}
 
 		void Prepare(double InSampleRate) override
@@ -226,7 +224,7 @@ namespace NodeSynth
 			if (Out == nullptr) { return; }
 
 			const std::shared_ptr<FWavetableData> Table =
-				std::atomic_load_explicit(&CurrentTable, std::memory_order_acquire);
+				CurrentTable.load(std::memory_order_acquire);
 			if (!Table || Table->Frames.empty())
 			{
 				for (uint32_t I = 0; I < Ctx.BlockSize; ++I) { Out[I] = 0.0f; }
@@ -334,8 +332,8 @@ namespace NodeSynth
 		{
 			auto C = std::make_shared<FWavetableOscillator>();
 			C->WavetablePath = WavetablePath;
-			std::atomic_store_explicit(&C->CurrentTable,
-				std::atomic_load_explicit(&CurrentTable, std::memory_order_acquire),
+			C->CurrentTable.store(
+				CurrentTable.load(std::memory_order_acquire),
 				std::memory_order_release);
 			C->Frequency.store(Frequency.load(std::memory_order_relaxed));
 			C->Position.store(Position.load(std::memory_order_relaxed));
@@ -387,7 +385,7 @@ namespace NodeSynth
 			return Mip;
 		}
 
-		std::shared_ptr<FWavetableData> CurrentTable{ nullptr };
+		std::atomic<std::shared_ptr<FWavetableData>> CurrentTable{ nullptr };
 		std::string WavetablePath;
 
 		std::atomic<float> Frequency{ 440.0f };

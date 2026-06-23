@@ -885,15 +885,15 @@ namespace NodeSynth
 	}
 
 	std::shared_ptr<FAudioGraph> FGraphModel::CompileFlattened(
-		const std::unordered_map<FNodeId, FNodeRecord>& Nodes,
-		const std::vector<FLink>& Links,
+		const std::unordered_map<FNodeId, FNodeRecord>& InNodes,
+		const std::vector<FLink>& InLinks,
 		double SampleRate)
 	{
 		auto Graph = std::make_shared<FAudioGraph>();
 
 		// -- Step 1: locate the output sink --------------------------------------
 		const FNodeRecord* OutputRec = nullptr;
-		for (const auto& [Id, Rec] : Nodes)
+		for (const auto& [Id, Rec] : InNodes)
 		{
 			if (std::string(Rec.Node->GetTypeName()) == "Output")
 			{
@@ -915,14 +915,14 @@ namespace NodeSynth
 			{
 				return;
 			}
-			for (const FLink& L : Links)
+			for (const FLink& L : InLinks)
 			{
 				if (L.ToNode == Id)
 				{
 					Visit(L.FromNode);
 				}
 			}
-			if (Nodes.count(Id) > 0)
+			if (InNodes.count(Id) > 0)
 			{
 				Order.push_back(Id);
 			}
@@ -935,7 +935,7 @@ namespace NodeSynth
 		Class.reserve(Order.size());
 		for (FNodeId Id : Order)
 		{
-			const FNodeRecord& Rec = Nodes.at(Id);
+			const FNodeRecord& Rec = InNodes.at(Id);
 			if (dynamic_cast<FVoiceAllocator*>(Rec.Node.get()))
 			{
 				Class[Id] = EClass::VoiceAlloc;
@@ -958,7 +958,7 @@ namespace NodeSynth
 		// Returns an empty graph on validation failure; the audio thread sees
 		// silence until the user fixes the routing. UI surfaces the error
 		// via the empty-snapshot fallback.
-		for (const FLink& L : Links)
+		for (const FLink& L : InLinks)
 		{
 			if (Visited.count(L.FromNode) == 0 || Visited.count(L.ToNode) == 0)
 			{
@@ -968,7 +968,7 @@ namespace NodeSynth
 			const EClass ToC = Class.at(L.ToNode);
 			if (IsPolyClass(FromC) && ToC == EClass::Mono)
 			{
-				const auto FromPorts = Nodes.at(L.FromNode).Node->GetOutputPorts();
+				const auto FromPorts = InNodes.at(L.FromNode).Node->GetOutputPorts();
 				if (L.FromPort < FromPorts.size()
 					&& FromPorts[L.FromPort].Type == EPortType::Control)
 				{
@@ -1003,7 +1003,7 @@ namespace NodeSynth
 			VoiceClones.reserve(NumVoices);
 			for (size_t V = 0; V < NumVoices; ++V)
 			{
-				auto Clone = Nodes.at(Id).Node->Clone();
+				auto Clone = InNodes.at(Id).Node->Clone();
 				if (!Clone)
 				{
 					std::fprintf(stderr,
@@ -1033,7 +1033,7 @@ namespace NodeSynth
 			const EClass FromC = Class.at(FromId);
 			if (FromC == EClass::VoiceAlloc)
 			{
-				auto* Alloc = static_cast<FVoiceAllocator*>(Nodes.at(FromId).Node.get());
+				auto* Alloc = static_cast<FVoiceAllocator*>(InNodes.at(FromId).Node.get());
 				return Alloc->GetVoiceOutputBuffer(FromPort, VoiceIdx);
 			}
 			if (FromC == EClass::PerVoice)
@@ -1043,7 +1043,7 @@ namespace NodeSynth
 			return nullptr;
 		};
 
-		for (const FLink& L : Links)
+		for (const FLink& L : InLinks)
 		{
 			if (Visited.count(L.FromNode) == 0 || Visited.count(L.ToNode) == 0)
 			{
@@ -1055,7 +1055,7 @@ namespace NodeSynth
 			{
 				continue;
 			}
-			const auto FromPorts = Nodes.at(L.FromNode).Node->GetOutputPorts();
+			const auto FromPorts = InNodes.at(L.FromNode).Node->GetOutputPorts();
 			if (L.FromPort >= FromPorts.size()
 				|| FromPorts[L.FromPort].Type != EPortType::Audio)
 			{
@@ -1098,7 +1098,7 @@ namespace NodeSynth
 			}
 			else
 			{
-				auto& Node = Nodes.at(Id).Node;
+				auto& Node = InNodes.at(Id).Node;
 				Node->Prepare(SampleRate);
 				const uint32_t NumIn = static_cast<uint32_t>(Node->GetInputPorts().size());
 				for (uint32_t I = 0; I < NumIn; ++I)
@@ -1122,7 +1122,7 @@ namespace NodeSynth
 		}
 
 		// -- Step 8: wire all links ----------------------------------------------
-		for (const FLink& L : Links)
+		for (const FLink& L : InLinks)
 		{
 			if (Visited.count(L.FromNode) == 0 || Visited.count(L.ToNode) == 0)
 			{
@@ -1149,13 +1149,13 @@ namespace NodeSynth
 			if (!bFromPoly && !bToPoly)
 			{
 				// Mono → Mono.
-				WireMonoLink(Nodes.at(L.FromNode).Node.get(), L.FromPort,
-					Nodes.at(L.ToNode).Node.get(), L.ToPort);
+				WireMonoLink(InNodes.at(L.FromNode).Node.get(), L.FromPort,
+					InNodes.at(L.ToNode).Node.get(), L.ToPort);
 			}
 			else if (!bFromPoly && bToPoly)
 			{
 				// Mono → PerVoice: broadcast.
-				INode* Source = Nodes.at(L.FromNode).Node.get();
+				INode* Source = InNodes.at(L.FromNode).Node.get();
 				for (auto& Clone : Clones.at(L.ToNode))
 				{
 					WireMonoLink(Source, L.FromPort, Clone.get(), L.ToPort);
@@ -1179,8 +1179,8 @@ namespace NodeSynth
 				if (It != Mixers.end())
 				{
 					float* MixBuf = It->second->GetOutputBuffer(0);
-					Nodes.at(L.ToNode).Node->SetInputBuffer(L.ToPort, MixBuf, 0);
-					Nodes.at(L.ToNode).Node->SetInputBuffer(L.ToPort, MixBuf, 1);
+					InNodes.at(L.ToNode).Node->SetInputBuffer(L.ToPort, MixBuf, 0);
+					InNodes.at(L.ToNode).Node->SetInputBuffer(L.ToPort, MixBuf, 1);
 				}
 			}
 		}
@@ -1196,7 +1196,7 @@ namespace NodeSynth
 		for (FNodeId Id : Order)
 		{
 			FAudioGraph::FNodeEntry Entry;
-			Entry.Primary = Nodes.at(Id).Node.get();
+			Entry.Primary = InNodes.at(Id).Node.get();
 			if (auto It = Clones.find(Id); It != Clones.end())
 			{
 				Entry.Voices.reserve(It->second.size());
@@ -1206,11 +1206,11 @@ namespace NodeSynth
 				}
 			}
 			Graph->NodeById.emplace(Id, std::move(Entry));
-			if (auto* Alloc = dynamic_cast<FVoiceAllocator*>(Nodes.at(Id).Node.get()))
+			if (auto* Alloc = dynamic_cast<FVoiceAllocator*>(InNodes.at(Id).Node.get()))
 			{
 				Graph->Allocators.push_back(Alloc);
 			}
-			if (auto* Cc = dynamic_cast<FMidiCC*>(Nodes.at(Id).Node.get()))
+			if (auto* Cc = dynamic_cast<FMidiCC*>(InNodes.at(Id).Node.get()))
 			{
 				Graph->MidiCcNodes.push_back(Cc);
 			}

@@ -236,8 +236,8 @@ namespace NodeSynth
 		bool ExpandSubgraphs(std::unordered_map<FNodeId, FNodeRecord>& WorkNodes,
 			std::vector<FLink>& WorkLinks);
 		std::shared_ptr<FAudioGraph> CompileFlattened(
-			const std::unordered_map<FNodeId, FNodeRecord>& Nodes,
-			const std::vector<FLink>& Links,
+			const std::unordered_map<FNodeId, FNodeRecord>& InNodes,
+			const std::vector<FLink>& InLinks,
 			double SampleRate);
 
 		std::unordered_map<FNodeId, FNodeRecord> Nodes;

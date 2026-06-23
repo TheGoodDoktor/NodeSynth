@@ -227,7 +227,7 @@ namespace NodeSynth
 			return;
 		}
 
-		auto Snap = std::atomic_load_explicit(&ActiveEmulator, std::memory_order_acquire);
+		auto Snap = ActiveEmulator.load(std::memory_order_acquire);
 		if (!Snap)
 		{
 			// No tune loaded — silence + hold last known Control values.
@@ -386,8 +386,7 @@ namespace NodeSynth
 		}
 		if (Path.empty())
 		{
-			std::atomic_store_explicit(&ActiveEmulator,
-				std::shared_ptr<FSidEmulator>{},
+			ActiveEmulator.store(std::shared_ptr<FSidEmulator>{},
 				std::memory_order_release);
 			return;
 		}
@@ -417,8 +416,7 @@ namespace NodeSynth
 			}
 			std::lock_guard<std::mutex> Lock(InfoMutex);
 			LoadError = Msg;
-			std::atomic_store_explicit(&ActiveEmulator,
-				std::shared_ptr<FSidEmulator>{},
+			ActiveEmulator.store(std::shared_ptr<FSidEmulator>{},
 				std::memory_order_release);
 			return;
 		}
@@ -432,8 +430,7 @@ namespace NodeSynth
 		{
 			std::lock_guard<std::mutex> Lock(InfoMutex);
 			LoadError = "Init routine failed";
-			std::atomic_store_explicit(&ActiveEmulator,
-				std::shared_ptr<FSidEmulator>{},
+			ActiveEmulator.store(std::shared_ptr<FSidEmulator>{},
 				std::memory_order_release);
 			return;
 		}
@@ -451,7 +448,7 @@ namespace NodeSynth
 			Info.ChipClockHz = ChipClockHz;
 		}
 
-		std::atomic_store_explicit(&ActiveEmulator, std::move(NewEmu),
+		ActiveEmulator.store(std::move(NewEmu),
 			std::memory_order_release);
 	}
 
