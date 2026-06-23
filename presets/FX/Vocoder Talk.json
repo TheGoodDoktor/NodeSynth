@@ -1,0 +1,107 @@
+{
+  "links": [
+    {
+      "from_node": 1,
+      "from_port": 0,
+      "id": 1,
+      "to_node": 3,
+      "to_port": 0
+    },
+    {
+      "from_node": 2,
+      "from_port": 0,
+      "id": 2,
+      "to_node": 3,
+      "to_port": 1
+    },
+    {
+      "from_node": 3,
+      "from_port": 0,
+      "id": 3,
+      "to_node": 4,
+      "to_port": 0
+    },
+    {
+      "from_node": 4,
+      "from_port": 0,
+      "id": 4,
+      "to_node": 5,
+      "to_port": 0
+    },
+    {
+      "from_node": 5,
+      "from_port": 0,
+      "id": 5,
+      "to_node": 6,
+      "to_port": 0
+    }
+  ],
+  "metadata": {
+    "author": "NodeSynth",
+    "bpm": 120.0,
+    "name": "Vocoder Talk",
+    "notes": "Talking synth. Mic Input -> Vocoder Modulator; a 110 Hz saw Oscillator drone -> Carrier. Open the Mic Input node, pick a capture device, and speak or sing — the saw 'says' your words. Repitch the oscillator to change the robot's note. USE HEADPHONES: speaker monitoring feeds back into the mic.",
+    "sample_rate_hint": 48000.0
+  },
+  "nodes": [
+    {
+      "id": 1,
+      "params": {
+        "Amplitude": 0.800000011920929,
+        "Frequency": 110.0,
+        "Shape": 1.0
+      },
+      "type": "Oscillator",
+      "x": 60.0,
+      "y": 180.0
+    },
+    {
+      "id": 2,
+      "params": {
+        "Device": 0.0,
+        "Gain": 0.0
+      },
+      "type": "MicInput",
+      "x": 60.0,
+      "y": 360.0
+    },
+    {
+      "id": 3,
+      "params": {
+        "Attack": 5.0,
+        "Bands": 1.0,
+        "Formant": 1.0,
+        "Mix": 1.0,
+        "Output": 12.0,
+        "Release": 40.0
+      },
+      "type": "Vocoder",
+      "x": 360.0,
+      "y": 240.0
+    },
+    {
+      "id": 4,
+      "params": {
+        "Gain": 0.5
+      },
+      "type": "Gain",
+      "x": 640.0,
+      "y": 240.0
+    },
+    {
+      "id": 5,
+      "params": {},
+      "type": "Meter",
+      "x": 880.0,
+      "y": 240.0
+    },
+    {
+      "id": 6,
+      "params": {},
+      "type": "Output",
+      "x": 1120.0,
+      "y": 240.0
+    }
+  ],
+  "version": 1
+}

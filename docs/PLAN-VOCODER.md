@@ -2,6 +2,8 @@
 
 A **channel vocoder**: a `FVocoder` node that imposes the moving spectral envelope of a *modulator* signal (classically a voice) onto a harmonically-rich *carrier* (classically a saw/square synth), producing the "talking synth" effect. Plus a companion **`FMicInput`** live-capture node so the modulator can be your actual voice in real time.
 
+**Status (2026-06-23):** Shipped on `feature/vocoder`, not yet merged. All sub-phases done — V.1 (`FBiquadCoeffs::SetBandpass` + tests), V.2 (`FVocoder` node + tests + registry), V.3 (`FMicInput` + `FMicRing` + custom UI + tests), V.4 (icons, `FX/Vocoder Talk` preset, docs). Full suite green (317 cases). v2 deferrals unchanged (§1.10, §2.4).
+
 **Entry state:** Backlog empty. Subgraphs shipped on `feature/subgraphs`. Stereo signal path live; `FEnvelopeFollower` (dynamics) and `FBiquadCoeffs`/`FBiquadState` (EQ) primitives exist and are reused here. Audio device is **playback-only** (`ma_device_type_playback` in `main.cpp`); there is no audio-capture or file-input path anywhere in the codebase yet.
 
 **Goal:** speak into a microphone, hear a synth pad "say" the words. Drop a `Mic Input` → `Vocoder.Modulator`, an `Oscillator` (saw) → `Vocoder.Carrier`, `Vocoder` → `Output`, and get intelligible robot-choir vocals with adjustable band count, attack/release, and formant shift.

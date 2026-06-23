@@ -28,6 +28,7 @@
 #include "dsp/Lfo.h"
 #include "dsp/Limiter.h"
 #include "dsp/Meter.h"
+#include "dsp/MicInput.h"
 #include "dsp/MidiCC.h"
 #include "dsp/Mixer.h"
 #include "dsp/ModulationMatrix.h"
@@ -44,6 +45,7 @@
 #include "dsp/Svf.h"
 #include "dsp/Tremolo.h"
 #include "dsp/VoiceAllocator.h"
+#include "dsp/Vocoder.h"
 #include "dsp/Waveshaper.h"
 #include "dsp/WavetableOscillator.h"
 #include "graph/Graph.h"
@@ -1586,6 +1588,53 @@ namespace
 			"Triangle pluck -> Auto-Pan (1 Hz) -> Haas Widener -> Reverb. Each pluck swings across the stereo field with a precedence-effect smear.");
 		SaveTo(M, Root, "FX", "Auto-Pan Pluck");
 	}
+
+	// --- Vocoder Talk: live mic modulates a saw-drone carrier -----------
+	// The "talking synth". Mic Input (modulator) imposes its spectral
+	// envelope onto a saw Oscillator drone (carrier) via the Vocoder. Mono
+	// throughout; the mic device defaults to "Off" in the saved patch, so the
+	// user picks a capture device in the Mic Input panel to bring it to life.
+	void EmitVocoderTalk(const std::filesystem::path& Root)
+	{
+		FGraphModel M;
+		auto Mic = std::make_shared<FMicInput>();
+		auto Osc = std::make_shared<FOscillator>();
+		auto Voc = std::make_shared<FVocoder>();
+		auto GainNode = std::make_shared<FGain>();
+
+		Osc->SetParamValue(FOscillator::Param_Shape, static_cast<float>(Saw));
+		Osc->SetParamValue(FOscillator::Param_Frequency, 110.0f);  // A2 drone
+		Osc->SetParamValue(FOscillator::Param_Amplitude, 0.8f);
+		Voc->SetParamValue(FVocoder::Param_Bands, 1.0f);    // 16 bands
+		Voc->SetParamValue(FVocoder::Param_Attack, 5.0f);
+		Voc->SetParamValue(FVocoder::Param_Release, 40.0f);
+		Voc->SetParamValue(FVocoder::Param_Formant, 1.0f);
+		Voc->SetParamValue(FVocoder::Param_Mix, 1.0f);
+		Voc->SetParamValue(FVocoder::Param_OutputDb, 12.0f);  // vocoding loses level
+		GainNode->SetParamValue(FGain::Param_Gain, 0.5f);
+
+		const FNodeId OscId = M.AddNode(Osc, 60.0f, 180.0f);
+		const FNodeId MicId = M.AddNode(Mic, 60.0f, 360.0f);
+		const FNodeId VocId = M.AddNode(Voc, 360.0f, 240.0f);
+		const FNodeId GainId = M.AddNode(GainNode, 640.0f, 240.0f);
+
+		M.AddLink(OscId, 0, VocId, FVocoder::Input_Carrier);
+		M.AddLink(MicId, 0, VocId, FVocoder::Input_Modulator);
+		M.AddLink(VocId, 0, GainId, 0);
+
+		auto MeterNode = std::make_shared<FMeter>();
+		auto Out = std::make_shared<FOutput>();
+		const FNodeId MeterId = M.AddNode(MeterNode, 880.0f, 240.0f);
+		const FNodeId OutId = M.AddNode(Out, 1120.0f, 240.0f);
+		M.AddLink(GainId, 0, MeterId, 0);
+		M.AddLink(MeterId, 0, OutId, 0);
+
+		SetMeta(M, "Vocoder Talk",
+			"Talking synth. Mic Input -> Vocoder Modulator; a 110 Hz saw Oscillator drone -> Carrier. "
+			"Open the Mic Input node, pick a capture device, and speak or sing — the saw 'says' your words. "
+			"Repitch the oscillator to change the robot's note. USE HEADPHONES: speaker monitoring feeds back into the mic.");
+		SaveTo(M, Root, "FX", "Vocoder Talk");
+	}
 }
 
 TEST_CASE("Emit bundled presets to ./presets/", "[.][preset-emit]")
@@ -1670,4 +1719,7 @@ TEST_CASE("Emit bundled presets to ./presets/", "[.][preset-emit]")
 
 	// Modulation Matrix showcase.
 	EmitMatrixRoutingPad(Root);
+
+	// Vocoder + live Mic Input showcase ("talking synth").
+	EmitVocoderTalk(Root);
 }
