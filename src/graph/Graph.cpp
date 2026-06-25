@@ -1188,7 +1188,7 @@ namespace NodeSynth
 		Graph->OrderedNodes = std::move(OrderedNodes);
 		Graph->OutputNode = OutputRec->Node;
 
-		// Build NodeById + Allocators. NodeById maps original ids only — clones
+		// Build NodeById + NoteSinks. NodeById maps original ids only — clones
 		// don't get their own ids; SetParam fan-out to per-voice clones is a
 		// follow-on (see CLAUDE.md). For now, SetParam on a per-voice node
 		// updates the original (which isn't in OrderedNodes for per-voice nodes).
@@ -1206,9 +1206,9 @@ namespace NodeSynth
 				}
 			}
 			Graph->NodeById.emplace(Id, std::move(Entry));
-			if (auto* Alloc = dynamic_cast<FVoiceAllocator*>(InNodes.at(Id).Node.get()))
+			if (auto* Sink = dynamic_cast<INoteSink*>(InNodes.at(Id).Node.get()))
 			{
-				Graph->Allocators.push_back(Alloc);
+				Graph->NoteSinks.push_back(Sink);
 			}
 			if (auto* Cc = dynamic_cast<FMidiCC*>(InNodes.at(Id).Node.get()))
 			{
@@ -1252,18 +1252,18 @@ namespace NodeSynth
 				case EAudioCommand::NoteOn:
 				{
 					const uint8_t Note = static_cast<uint8_t>(Cmd.ParamIndex);
-					for (FVoiceAllocator* Alloc : Allocators)
+					for (INoteSink* Sink : NoteSinks)
 					{
-						Alloc->HandleNoteOn(Note, Cmd.Value);
+						Sink->HandleNoteOn(Note, Cmd.Value);
 					}
 					break;
 				}
 				case EAudioCommand::NoteOff:
 				{
 					const uint8_t Note = static_cast<uint8_t>(Cmd.ParamIndex);
-					for (FVoiceAllocator* Alloc : Allocators)
+					for (INoteSink* Sink : NoteSinks)
 					{
-						Alloc->HandleNoteOff(Note);
+						Sink->HandleNoteOff(Note);
 					}
 					break;
 				}

@@ -10,7 +10,7 @@
 namespace NodeSynth
 {
 	class FEditHistory;
-	class FVoiceAllocator;
+	class INoteSink;
 	class FMidiCC;
 	struct FSubgraphDefinition;
 
@@ -92,9 +92,10 @@ namespace NodeSynth
 		};
 		std::unordered_map<FNodeId, FNodeEntry> NodeById;
 
-		// Voice allocators in this snapshot. NoteOn / NoteOff commands are
-		// broadcast to every entry. Populated alongside NodeById in Compile.
-		std::vector<FVoiceAllocator*> Allocators;
+		// Note sinks in this snapshot (voice allocators, arpeggiators). NoteOn /
+		// NoteOff commands are broadcast to every entry. Populated alongside
+		// NodeById in Compile.
+		std::vector<INoteSink*> NoteSinks;
 
 		// FMidiCC nodes in this snapshot. The MIDI device manager visits
 		// every entry when draining its audio CC ring so each node can

@@ -337,20 +337,20 @@ int main()
 	FAudioState AudioState;
 
 	// Helper that publishes a freshly compiled snapshot to the audio thread,
-	// also handing the snapshot's voice allocator list to the global MIDI
-	// manager. SetVoiceAllocators runs BEFORE the atomic store so the
-	// manager and the audio thread agree on the live allocator set as soon
+	// also handing the snapshot's note-sink list to the global MIDI
+	// manager. SetNoteSinks runs BEFORE the atomic store so the
+	// manager and the audio thread agree on the live note-sink set as soon
 	// as the audio thread sees the new graph.
 	auto PublishSnapshot = [&AudioState](std::shared_ptr<FAudioGraph> NewSnapshot)
 	{
 		if (NewSnapshot)
 		{
-			AudioState.MidiManager.SetVoiceAllocators(NewSnapshot->Allocators);
+			AudioState.MidiManager.SetNoteSinks(NewSnapshot->NoteSinks);
 			AudioState.MidiManager.SetMidiCcNodes(NewSnapshot->MidiCcNodes);
 		}
 		else
 		{
-			AudioState.MidiManager.SetVoiceAllocators({});
+			AudioState.MidiManager.SetNoteSinks({});
 			AudioState.MidiManager.SetMidiCcNodes({});
 		}
 		AudioState.Graph.store(std::move(NewSnapshot),

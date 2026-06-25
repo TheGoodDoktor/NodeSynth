@@ -6,7 +6,7 @@
 
 #include "dsp/MidiCC.h"
 #include "dsp/Node.h"
-#include "dsp/VoiceAllocator.h"
+#include "dsp/NoteSink.h"
 
 namespace NodeSynth
 {
@@ -100,9 +100,9 @@ namespace NodeSynth
 		ChannelFilter.store(Channel, std::memory_order_relaxed);
 	}
 
-	void FMidiDeviceManager::SetVoiceAllocators(std::vector<FVoiceAllocator*> InAllocators)
+	void FMidiDeviceManager::SetNoteSinks(std::vector<INoteSink*> InNoteSinks)
 	{
-		Allocators = std::move(InAllocators);
+		NoteSinks = std::move(InNoteSinks);
 	}
 
 	void FMidiDeviceManager::SetMidiCcNodes(std::vector<FMidiCC*> InNodes)
@@ -149,16 +149,16 @@ namespace NodeSynth
 			if (bNoteOn)
 			{
 				const float Vel = static_cast<float>(Event.Data2) / 127.0f;
-				for (FVoiceAllocator* Alloc : Allocators)
+				for (INoteSink* Sink : NoteSinks)
 				{
-					Alloc->HandleNoteOn(Event.Data1, Vel);
+					Sink->HandleNoteOn(Event.Data1, Vel);
 				}
 			}
 			else if (bNoteOff)
 			{
-				for (FVoiceAllocator* Alloc : Allocators)
+				for (INoteSink* Sink : NoteSinks)
 				{
-					Alloc->HandleNoteOff(Event.Data1);
+					Sink->HandleNoteOff(Event.Data1);
 				}
 			}
 		}

@@ -1,0 +1,137 @@
+{
+  "links": [
+    {
+      "from_node": 1,
+      "from_port": 1,
+      "id": 1,
+      "to_node": 2,
+      "to_port": 0
+    },
+    {
+      "from_node": 1,
+      "from_port": 0,
+      "id": 2,
+      "to_node": 3,
+      "to_port": 0
+    },
+    {
+      "from_node": 3,
+      "from_port": 0,
+      "id": 3,
+      "to_node": 2,
+      "to_port": 1
+    },
+    {
+      "from_node": 2,
+      "from_port": 0,
+      "id": 4,
+      "to_node": 4,
+      "to_port": 0
+    },
+    {
+      "from_node": 4,
+      "from_port": 0,
+      "id": 5,
+      "to_node": 5,
+      "to_port": 0
+    },
+    {
+      "from_node": 5,
+      "from_port": 0,
+      "id": 6,
+      "to_node": 6,
+      "to_port": 0
+    },
+    {
+      "from_node": 6,
+      "from_port": 0,
+      "id": 7,
+      "to_node": 7,
+      "to_port": 0
+    }
+  ],
+  "metadata": {
+    "author": "NodeSynth",
+    "bpm": 120.0,
+    "name": "Arp Pluck",
+    "notes": "Keyboard-driven arpeggiator. Hold a chord and the Arpeggiator plays it one note at a time (Up, 2 octaves, 1/16 at 120 BPM) on its own internal clock. Arp Frequency -> Saw oscillator, Arp Gate -> plucky ADSR shaping the amplitude, into a resonant low-pass and a short delay for echoes. Wire a Clock node into the Arp's Clock input to sync to a tempo instead.",
+    "sample_rate_hint": 48000.0
+  },
+  "nodes": [
+    {
+      "id": 1,
+      "params": {
+        "BPM": 120.0,
+        "Gate": 0.5,
+        "Octaves": 1.0,
+        "Pattern": 0.0,
+        "Rate": 3.0,
+        "Swing": 0.0
+      },
+      "type": "Arpeggiator",
+      "x": 60.0,
+      "y": 160.0
+    },
+    {
+      "id": 2,
+      "params": {
+        "Amplitude": 0.30000001192092896,
+        "Frequency": 440.0,
+        "Shape": 1.0
+      },
+      "type": "Oscillator",
+      "x": 320.0,
+      "y": 260.0
+    },
+    {
+      "id": 3,
+      "params": {
+        "Attack": 2.0,
+        "Decay": 160.0,
+        "Release": 120.0,
+        "Sustain": 0.20000000298023224
+      },
+      "type": "ADSR",
+      "x": 320.0,
+      "y": 40.0
+    },
+    {
+      "id": 4,
+      "params": {
+        "Cutoff": 2600.0,
+        "Resonance": 0.30000001192092896
+      },
+      "type": "SVF",
+      "x": 580.0,
+      "y": 260.0
+    },
+    {
+      "id": 5,
+      "params": {
+        "Feedback": 0.3499999940395355,
+        "Time": 250.0,
+        "Tone": 0.5
+      },
+      "type": "Delay",
+      "x": 840.0,
+      "y": 260.0
+    },
+    {
+      "id": 6,
+      "params": {
+        "Gain": 0.4000000059604645
+      },
+      "type": "Gain",
+      "x": 1100.0,
+      "y": 260.0
+    },
+    {
+      "id": 7,
+      "params": {},
+      "type": "Output",
+      "x": 1360.0,
+      "y": 260.0
+    }
+  ],
+  "version": 1
+}

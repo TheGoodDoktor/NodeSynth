@@ -12,7 +12,7 @@ class RtMidiIn;
 
 namespace NodeSynth
 {
-	class FVoiceAllocator;
+	class INoteSink;
 	class FMidiCC;
 	struct FProcessContext;
 
@@ -22,8 +22,8 @@ namespace NodeSynth
 	// transport concern, not a graph concern, so it lives outside the graph.
 	//
 	// One instance is held by FAudioState (in main.cpp). FGraphModel::Compile
-	// pushes the current snapshot's voice allocator list via SetVoiceAllocators
-	// so every block can dispatch notes directly to the audio-thread state.
+	// pushes the current snapshot's note-sink list via SetNoteSinks so every
+	// block can dispatch notes directly to the audio-thread state.
 	// The audio callback calls Process(Ctx) once per block before
 	// FAudioGraph::Process, ensuring notes captured this block reach the
 	// allocators before they emit per-voice gates / frequencies.
@@ -81,10 +81,10 @@ namespace NodeSynth
 
 		// Audio-thread API ------------------------------------------------------
 
-		// Hand over the active snapshot's voice allocator list. Pointers are
-		// valid for the lifetime of the snapshot's shared_ptr; FGraphModel::Compile
-		// updates this on every recompile.
-		void SetVoiceAllocators(std::vector<FVoiceAllocator*> InAllocators);
+		// Hand over the active snapshot's note-sink list (voice allocators,
+		// arpeggiators). Pointers are valid for the lifetime of the snapshot's
+		// shared_ptr; FGraphModel::Compile updates this on every recompile.
+		void SetNoteSinks(std::vector<INoteSink*> InNoteSinks);
 
 		// Hand over the active snapshot's FMidiCC node list. Updated by Compile.
 		// Audio thread visits every entry when draining the audio CC ring so
@@ -92,7 +92,7 @@ namespace NodeSynth
 		void SetMidiCcNodes(std::vector<FMidiCC*> InNodes);
 
 		// Drain the note ring + audio CC ring and dispatch to every
-		// registered allocator / MIDI CC node. Runs on the audio thread
+		// registered note sink / MIDI CC node. Runs on the audio thread
 		// once per block, before FAudioGraph::Process.
 		void Process(const FProcessContext& Ctx);
 
@@ -117,7 +117,7 @@ namespace NodeSynth
 		std::atomic<int32_t> ChannelFilter{ 0 };
 
 		// Audio-thread state.
-		std::vector<FVoiceAllocator*> Allocators;
+		std::vector<INoteSink*> NoteSinks;
 		std::vector<FMidiCC*> MidiCcNodes;
 	};
 }

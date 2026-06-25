@@ -354,6 +354,34 @@ namespace NodeSynth
 			}
 		}
 
+		void DrawArpeggiatorIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
+		{
+			// Four ascending note-dots connected by a rising zigzag — the
+			// signature "notes played one at a time, going up".
+			const float W = Max.x - Min.x;
+			const float H = Max.y - Min.y;
+			const float L = Min.x + W * 0.15f;
+			const float R = Max.x - W * 0.15f;
+			const float Bottom = Max.y - H * 0.22f;
+			const float Top = Min.y + H * 0.22f;
+			constexpr int32_t Num = 4;
+			ImVec2 Pts[Num];
+			for (int32_t I = 0; I < Num; ++I)
+			{
+				const float T = static_cast<float>(I) / static_cast<float>(Num - 1);
+				Pts[I] = ImVec2(L + (R - L) * T, Bottom - (Bottom - Top) * T);
+			}
+			for (int32_t I = 0; I + 1 < Num; ++I)
+			{
+				Draw->AddLine(Pts[I], Pts[I + 1], Col, 1.25f);
+			}
+			const float DotR = std::min(W, H) * 0.09f;
+			for (int32_t I = 0; I < Num; ++I)
+			{
+				Draw->AddCircleFilled(Pts[I], DotR, Col, 8);
+			}
+		}
+
 		void DrawWaveshaperIcon(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max, ImU32 Col)
 		{
 			// Sigmoid-like S-curve: rises linearly through the middle, flattens
@@ -1051,6 +1079,10 @@ namespace NodeSynth
 		{
 			DrawSequencerIcon(Draw, Min, Max, ColControl);
 		}
+		else if (std::strcmp(TypeName, "Arpeggiator") == 0)
+		{
+			DrawArpeggiatorIcon(Draw, Min, Max, ColControl);
+		}
 		else if (std::strcmp(TypeName, "Scope") == 0)
 		{
 			DrawScopeIcon(Draw, Min, Max, ColAmp);
@@ -1196,6 +1228,7 @@ namespace NodeSynth
 		if (std::strcmp(TypeName, "Exciter") == 0)        { return ColEffect; }
 		if (std::strcmp(TypeName, "Clock") == 0)          { return ColControl; }
 		if (std::strcmp(TypeName, "Sequencer") == 0)      { return ColControl; }
+		if (std::strcmp(TypeName, "Arpeggiator") == 0)    { return ColControl; }
 		if (std::strcmp(TypeName, "Scope") == 0)          { return ColAmp; }
 		if (std::strcmp(TypeName, "Meter") == 0)          { return ColAmp; }
 		if (std::strcmp(TypeName, "SidPlayer") == 0)      { return ColInput; }

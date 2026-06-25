@@ -210,7 +210,7 @@ TEST_CASE("VoiceAllocator: Clone() returns nullptr (non-cloneable source)", "[vo
 	REQUIRE(A.Clone() == nullptr);
 }
 
-TEST_CASE("VoiceAllocator: graph compile populates Allocators and routes NoteOn", "[voicealloc][graph]")
+TEST_CASE("VoiceAllocator: graph compile populates NoteSinks and routes NoteOn", "[voicealloc][graph]")
 {
 	// Allocator (poly Control) → Oscillator → Output. The Oscillator must be
 	// marked per-voice for the Control link to validate (poly → mono Control is
@@ -229,8 +229,8 @@ TEST_CASE("VoiceAllocator: graph compile populates Allocators and routes NoteOn"
 	REQUIRE(Model.AddLink(OscId, 0, OutId, 0) != 0);
 
 	auto Snapshot = CompileWith(Model);
-	REQUIRE(Snapshot->Allocators.size() == 1);
-	REQUIRE(Snapshot->Allocators[0] == Alloc.get());
+	REQUIRE(Snapshot->NoteSinks.size() == 1);
+	REQUIRE(Snapshot->NoteSinks[0] == Alloc.get());
 
 	FAudioCommandRing Ring;
 	Ring.Push(FAudioCommand::MakeNoteOn(60, 1.0f));
@@ -246,7 +246,7 @@ TEST_CASE("VoiceAllocator: graph compile populates Allocators and routes NoteOn"
 TEST_CASE("VoiceAllocator: DrainCommands broadcasts NoteOn / NoteOff to every allocator in snapshot", "[voicealloc][graph]")
 {
 	// Sidestep reachability + Output-singleton constraints: build a snapshot
-	// directly with two allocators in its Allocators list, push events through
+	// directly with two allocators in its NoteSinks list, push events through
 	// the ring, drain. Verifies the broadcast loop in DrainCommands itself.
 	auto AllocA = std::make_shared<FVoiceAllocator>();
 	auto AllocB = std::make_shared<FVoiceAllocator>();
@@ -256,8 +256,8 @@ TEST_CASE("VoiceAllocator: DrainCommands broadcasts NoteOn / NoteOff to every al
 	auto Snapshot = std::make_shared<FAudioGraph>();
 	Snapshot->OrderedNodes.push_back(AllocA);
 	Snapshot->OrderedNodes.push_back(AllocB);
-	Snapshot->Allocators.push_back(AllocA.get());
-	Snapshot->Allocators.push_back(AllocB.get());
+	Snapshot->NoteSinks.push_back(AllocA.get());
+	Snapshot->NoteSinks.push_back(AllocB.get());
 
 	FAudioCommandRing Ring;
 	Ring.Push(FAudioCommand::MakeNoteOn(72, 1.0f));
@@ -296,8 +296,8 @@ TEST_CASE("VoiceAllocator: only reachable allocators land in the snapshot", "[vo
 	REQUIRE(Model.AddLink(OscId, 0, OutId, 0) != 0);
 
 	auto Snapshot = CompileWith(Model);
-	REQUIRE(Snapshot->Allocators.size() == 1);
-	REQUIRE(Snapshot->Allocators[0] == Reachable.get());
+	REQUIRE(Snapshot->NoteSinks.size() == 1);
+	REQUIRE(Snapshot->NoteSinks[0] == Reachable.get());
 }
 
 TEST_CASE("VoiceAllocator: Glide=0 produces instant pitch jumps on note change", "[voicealloc][glide]")

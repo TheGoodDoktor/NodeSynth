@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include "dsp/Node.h"
+#include "dsp/NoteSink.h"
 #include "dsp/Smoother.h"
 
 namespace NodeSynth
@@ -21,7 +22,7 @@ namespace NodeSynth
 	// Voice stealing is a stub for now (3E-3): allocate the first voice with
 	// gate=false. Real same-note retrigger and oldest-released-first stealing
 	// land in 3E-5.
-	class FVoiceAllocator : public TNodeBase<0, 4>
+	class FVoiceAllocator : public TNodeBase<0, 4>, public INoteSink
 	{
 	public:
 		static constexpr size_t MaxVoices = 8;
@@ -191,7 +192,7 @@ namespace NodeSynth
 		//   3. Oldest *tailing* voice (gate low, still in its release tail).
 		//   4. Oldest *held* voice — steal. ADSR retrigger-from-current-level
 		//      keeps the steal click-free.
-		void HandleNoteOn(uint8_t Note, float Velocity)
+		void HandleNoteOn(uint8_t Note, float Velocity) override
 		{
 			const size_t Active = ActiveVoiceCount();
 			constexpr size_t Invalid = static_cast<size_t>(-1);
@@ -287,7 +288,7 @@ namespace NodeSynth
 			}
 		}
 
-		void HandleNoteOff(uint8_t Note)
+		void HandleNoteOff(uint8_t Note) override
 		{
 			const size_t Active = ActiveVoiceCount();
 			for (size_t I = 0; I < Active; ++I)

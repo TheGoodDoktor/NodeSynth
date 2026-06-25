@@ -4,6 +4,7 @@
 
 #include "dsp/Add.h"
 #include "dsp/Adsr.h"
+#include "dsp/Arpeggiator.h"
 #include "dsp/Subgraph.h"
 #include "dsp/internal/SubgraphBoundary.h"
 #include "dsp/AutoPan.h"
@@ -177,6 +178,17 @@ namespace NodeSynth
 				"into an Oscillator and Gate into an ADSR for a classic sequenced lead.",
 				"Modulation",
 				[]() -> std::shared_ptr<INode> { return std::make_shared<FSequencer>(); },
+			},
+			{
+				"Arpeggiator", "Arpeggiator",
+				"Monophonic arpeggiator. Hold a chord and it plays the notes one\n"
+				"at a time — Up / Down / Up-Down / Down-Up / As-Played / Random,\n"
+				"across 1–4 octaves. Runs on its own BPM/Rate clock, or sync it by\n"
+				"wiring a Clock node into the Clock input. Outputs Gate / Frequency /\n"
+				"Velocity / Note — drop it in place of a Voice Allocator: feed\n"
+				"Frequency into an Oscillator and Gate into an ADSR.",
+				"Modulation",
+				[]() -> std::shared_ptr<INode> { return std::make_shared<FArpeggiator>(); },
 			},
 			{
 				"MidiCC", "MIDI CC",
